@@ -154,12 +154,13 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         }
 
         // Preamp: dB → linear (bypassed when preamp disabled — limiter handles peaks)
-        let preampLinear = _preampEnabled ? powf(10.0, validated.preampDB / 20.0) : 1.0
+        let gainDB = (_preampEnabled ? validated.preampDB : 0) + validated.levelTrimDB
+        let preampLinear = powf(10.0, gainDB / 20.0)
         publish(setup: newSetup, gain: preampLinear, hardCut: hardCut)
         activeFilterCount = filters.count
 
         let preampStatus = self._preampEnabled ? "active" : "bypassed"
-        logger.info("AutoEQ applied: \"\(validated.name)\" — \(filters.count) filters, preamp \(validated.preampDB, format: .fixed(precision: 1)) dB (\(preampStatus)), rate \(self.sampleRate, format: .fixed(precision: 0)) Hz")
+        logger.info("AutoEQ applied: \"\(validated.name)\" — \(filters.count) filters, preamp \(validated.preampDB, format: .fixed(precision: 1)) dB (\(preampStatus)), trim \(validated.levelTrimDB, format: .fixed(precision: 1)) dB, rate \(self.sampleRate, format: .fixed(precision: 0)) Hz")
     }
 
     /// Seqlock publish of a new configuration. Main thread only.

@@ -24,6 +24,9 @@ nonisolated struct AutoEQProfile: Codable, Equatable, Identifiable {
     /// `nil` means "use the parameters as written at any device rate" (Equalizer APO / REW
     /// behavior, no frequency pre-warping). Imported profiles use `nil`.
     var optimizedSampleRate: Double?
+    /// Runtime-only extra gain (dB) applied with the preamp, e.g. A/B level matching.
+    /// Not persisted (absent from `CodingKeys`). Applied even when the preamp is bypassed.
+    var levelTrimDB: Float = 0
 
     /// Maximum number of biquad sections a profile may contain.
     ///
@@ -89,13 +92,15 @@ extension AutoEQProfile {
             f.frequency > 0 && f.q > 0 && f.gainDB.isFinite && abs(f.gainDB) <= Self.gainRangeDB.upperBound
         }
         let clampedPreamp = max(Self.preampRangeDB.lowerBound, min(Self.preampRangeDB.upperBound, preampDB))
-        return AutoEQProfile(
+        var result = AutoEQProfile(
             id: id, name: name, source: source,
             preampDB: clampedPreamp,
             filters: validFilters,
             measuredBy: measuredBy,
             optimizedSampleRate: optimizedSampleRate
         )
+        result.levelTrimDB = levelTrimDB.isFinite ? max(-30, min(0, levelTrimDB)) : 0
+        return result
     }
 }
 
