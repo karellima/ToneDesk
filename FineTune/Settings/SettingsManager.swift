@@ -92,7 +92,7 @@ final class SettingsManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
-        var version: Int = 12
+        var version: Int = SettingsMigration.currentVersion
         var appVolumes: [String: Float] = [:]
         var appDeviceRouting: [String: String] = [:]  // bundleID → deviceUID
         var appMutes: [String: Bool] = [:]  // bundleID → isMuted
@@ -137,6 +137,9 @@ final class SettingsManager {
         var deviceAutoEQ: [String: AutoEQSelection] = [:]  // deviceUID → selection
         var favoriteAutoEQProfiles: Set<String> = []  // profile IDs
         var autoEQPreampEnabled: Bool = true  // Use profile preamp vs bypass (rely on limiter)
+        // v13: fallback by device name/manufacturer (USB devices can change UID per port)
+        var deviceAutoEQByName: [String: AutoEQSelection] = [:]  // AutoEQDeviceKey → selection
+        var autoEQAB: AutoEQABSettings = AutoEQABSettings()
 
         // User-created EQ presets (named EQ curves)
         var userEQPresets: [UserEQPreset] = []
@@ -187,6 +190,8 @@ final class SettingsManager {
             deviceAutoEQ = try c.decodeIfPresent([String: AutoEQSelection].self, forKey: .deviceAutoEQ) ?? [:]
             favoriteAutoEQProfiles = try c.decodeIfPresent(Set<String>.self, forKey: .favoriteAutoEQProfiles) ?? []
             autoEQPreampEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoEQPreampEnabled) ?? true
+            deviceAutoEQByName = try c.decodeIfPresent([String: AutoEQSelection].self, forKey: .deviceAutoEQByName) ?? [:]
+            autoEQAB = (try? c.decodeIfPresent(AutoEQABSettings.self, forKey: .autoEQAB)) ?? AutoEQABSettings()
             userEQPresets = try c.decodeIfPresent([UserEQPreset].self, forKey: .userEQPresets) ?? []
         }
     }
@@ -704,6 +709,54 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    /// Resolves a device's AutoEQ selection by UID first, then by `deviceKey`
+    /// (name/manufacturer). A UID hit is mirrored into the name map; a name hit is
+    /// re-bound to the new UID, so the assignment survives USB port changes.
+    /// - Parameter persist: false for read-only lookups (e.g. from SwiftUI view bodies).
+    func resolveAutoEQSelection(for deviceUID: String, deviceKey: String?, persist: Bool = true) -> AutoEQSelection? {
+        if let selection = settings.deviceAutoEQ[deviceUID] {
+            if persist, let deviceKey, settings.deviceAutoEQByName[deviceKey] != selection {
+                settings.deviceAutoEQByName[deviceKey] = selection
+                scheduleSave()
+            }
+            return selection
+        }
+        guard let deviceKey, let selection = settings.deviceAutoEQByName[deviceKey] else { return nil }
+        guard persist else { return selection }
+        settings.deviceAutoEQ[deviceUID] = selection
+        scheduleSave()
+        logger.info("AutoEQ assignment restored by device name for new UID")
+        return selection
+    }
+
+    /// Sets the selection for a device under both its UID and its name key.
+    func setAutoEQSelection(for deviceUID: String, deviceKey: String?, to selection: AutoEQSelection?) {
+        settings.deviceAutoEQ[deviceUID] = selection
+        if let deviceKey { settings.deviceAutoEQByName[deviceKey] = selection }
+        scheduleSave()
+    }
+
+    /// Removes every assignment (UID and name) pointing at a deleted profile.
+    func removeAutoEQSelections(profileID: String) {
+        settings.deviceAutoEQ = settings.deviceAutoEQ.filter { $0.value.profileID != profileID }
+        settings.deviceAutoEQByName = settings.deviceAutoEQByName.filter { $0.value.profileID != profileID }
+        settings.favoriteAutoEQProfiles.remove(profileID)
+        if settings.autoEQAB.profileA == profileID { settings.autoEQAB.profileA = nil }
+        if settings.autoEQAB.profileB == profileID { settings.autoEQAB.profileB = nil }
+        scheduleSave()
+    }
+
+    var autoEQAB: AutoEQABSettings {
+        get { settings.autoEQAB }
+        set {
+            settings.autoEQAB = newValue
+            scheduleSave()
+        }
+    }
+
+    /// Schema version of the loaded settings (current after migration).
+    var settingsVersion: Int { settings.version }
+
     func favoriteAutoEQProfile(id: String) {
         settings.favoriteAutoEQProfiles.insert(id)
         scheduleSave()
@@ -858,6 +911,8 @@ final class SettingsManager {
         settings.hiddenInputDeviceUIDs.removeAll()
         settings.autoEQPreampEnabled = true
         settings.deviceAutoEQ.removeAll()
+        settings.deviceAutoEQByName.removeAll()
+        settings.autoEQAB = AutoEQABSettings()
         settings.favoriteAutoEQProfiles.removeAll()
         settings.appDeviceSelectionMode.removeAll()
         settings.appSelectedDeviceUIDs.removeAll()
@@ -876,6 +931,7 @@ final class SettingsManager {
         do {
             let data = try Data(contentsOf: settingsURL)
             settings = try JSONDecoder().decode(Settings.self, from: data)
+            migrateIfNeeded()
             logger.debug("Loaded settings with \(self.settings.appVolumes.count) volumes, \(self.settings.appDeviceRouting.count) device routings, \(self.settings.appMutes.count) mutes, \(self.settings.appEQSettings.count) EQ settings")
         } catch {
             logger.error("Failed to load settings: \(error.localizedDescription)")
@@ -886,6 +942,17 @@ final class SettingsManager {
             logger.warning("Backed up corrupted settings to \(backupURL.lastPathComponent)")
             settings = Settings()
         }
+    }
+
+    /// Backs up an older settings file and stamps the current schema version.
+    private func migrateIfNeeded() {
+        let current = SettingsMigration.currentVersion
+        guard settings.version < current else { return }
+        let from = settings.version
+        SettingsMigration.backupBeforeMigrating(settingsURL: settingsURL, fromVersion: from)
+        settings.version = current
+        writeToDisk()
+        logger.info("Migrated settings v\(from) → v\(current)")
     }
 
     private func scheduleSave() {

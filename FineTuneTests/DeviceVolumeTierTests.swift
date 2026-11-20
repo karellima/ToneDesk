@@ -331,7 +331,7 @@ struct SettingsMigrationV10toV11Tests {
     @Test("Re-encode after v10 decode bumps to v12 on a fresh Settings instance")
     func defaultSettingsVersionIsTwelve() {
         let fresh = SettingsManager.Settings()
-        #expect(fresh.version == 12)
+        #expect(fresh.version == 13)  // fork: v13 adds deviceAutoEQByName + autoEQAB
         #expect(fresh.deviceVolumeTierOverride.isEmpty)
     }
 

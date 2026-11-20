@@ -663,7 +663,7 @@ struct SettingsVersionTests {
     @Test("Default Settings().version is 12")
     func defaultVersion() {
         let settings = SettingsManager.Settings()
-        #expect(settings.version == 12)
+        #expect(settings.version == 13)  // fork: v13 adds deviceAutoEQByName + autoEQAB
     }
 
     @Test("userEQPresets defaults to empty array in Settings()")
