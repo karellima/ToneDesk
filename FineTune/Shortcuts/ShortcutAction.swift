@@ -11,6 +11,9 @@ enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case targetAppVolumeUp = "frontmostAppVolumeUp"
     case targetAppVolumeDown = "frontmostAppVolumeDown"
     case targetAppMuteToggle = "frontmostAppMuteToggle"
+    case autoEQNextProfile
+    case autoEQPreviousProfile
+    case autoEQToggleAB
 
     var displayName: String {
         switch self {
@@ -18,6 +21,9 @@ enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .targetAppVolumeUp: "App Volume Up"
         case .targetAppVolumeDown: "App Volume Down"
         case .targetAppMuteToggle: "App Mute"
+        case .autoEQNextProfile: "Next EQ Profile"
+        case .autoEQPreviousProfile: "Previous EQ Profile"
+        case .autoEQToggleAB: "Toggle EQ A/B"
         }
     }
 
@@ -27,7 +33,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     var supportsRepeat: Bool {
         switch self {
         case .targetAppVolumeUp, .targetAppVolumeDown: true
-        case .togglePopup, .targetAppMuteToggle: false
+        case .togglePopup, .targetAppMuteToggle,
+             .autoEQNextProfile, .autoEQPreviousProfile, .autoEQToggleAB: false
         }
     }
 }

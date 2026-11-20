@@ -14,6 +14,8 @@ final class AudioEngine {
     let volumeState: VolumeState
     let settingsManager: SettingsManager
     let autoEQProfileManager: AutoEQProfileManager
+    /// User library of imported profiles (order, rename, duplicate, backup).
+    let autoEQLibrary: AutoEQLibrary
     let permission: AudioRecordingPermission
     let appListCoordinator: AppListCoordinator
 
@@ -187,6 +189,7 @@ final class AudioEngine {
         self.settingsManager = manager
         self.appListCoordinator = AppListCoordinator(settingsManager: manager)
         self.autoEQProfileManager = autoEQProfileManager
+        self.autoEQLibrary = AutoEQLibrary(manager: autoEQProfileManager)
         self.volumeState = VolumeState(settingsManager: manager)
         self.isAliveCheck = isAlive ?? { $0.isDeviceAlive() }
 
@@ -759,28 +762,25 @@ final class AudioEngine {
     // MARK: - Per-Device AutoEQ
 
     func getAutoEQProfile(for deviceUID: String) -> AutoEQProfile? {
-        guard let selection = settingsManager.getAutoEQSelection(for: deviceUID) else { return nil }
+        guard let selection = resolvedAutoEQSelection(for: deviceUID, persist: false) else { return nil }
         return autoEQProfileManager.profile(for: selection.profileID)
     }
 
     func setAutoEQProfile(for deviceUID: String, profileID: String?) {
-        if let profileID {
-            settingsManager.setAutoEQSelection(for: deviceUID, to: AutoEQSelection(profileID: profileID, isEnabled: true))
-        } else {
-            settingsManager.setAutoEQSelection(for: deviceUID, to: nil)
-        }
+        let selection = profileID.map { AutoEQSelection(profileID: $0, isEnabled: true) }
+        settingsManager.setAutoEQSelection(for: deviceUID, deviceKey: autoEQDeviceKey(for: deviceUID), to: selection)
         applyAutoEQToTaps(for: deviceUID)
     }
 
     func setAutoEQEnabled(for deviceUID: String, enabled: Bool) {
-        guard var selection = settingsManager.getAutoEQSelection(for: deviceUID) else { return }
+        guard var selection = resolvedAutoEQSelection(for: deviceUID) else { return }
         selection.isEnabled = enabled
-        settingsManager.setAutoEQSelection(for: deviceUID, to: selection)
+        settingsManager.setAutoEQSelection(for: deviceUID, deviceKey: autoEQDeviceKey(for: deviceUID), to: selection)
         applyAutoEQToTaps(for: deviceUID)
     }
 
     func getAutoEQSelection(for deviceUID: String) -> AutoEQSelection? {
-        settingsManager.getAutoEQSelection(for: deviceUID)
+        resolvedAutoEQSelection(for: deviceUID, persist: false)
     }
 
     var autoEQPreampEnabled: Bool {
@@ -791,6 +791,12 @@ final class AudioEngine {
         settingsManager.autoEQPreampEnabled = enabled
         for tap in taps.values {
             tap.setAutoEQPreampEnabled(enabled)
+        }
+        // A/B level-match trims depend on whether the preamp is counted.
+        if settingsManager.autoEQAB.isConfigured {
+            for uid in Set(taps.values.compactMap(\.currentDeviceUID)) {
+                applyAutoEQToTaps(for: uid)
+            }
         }
     }
 
@@ -809,7 +815,7 @@ final class AudioEngine {
     }
 
     /// Apply AutoEQ profile to all taps currently routed to the given device.
-    private func applyAutoEQToTaps(for deviceUID: String) {
+    func applyAutoEQToTaps(for deviceUID: String) {
         for tap in taps.values {
             guard tap.currentDeviceUID == deviceUID else { continue }
             applyAutoEQToTap(tap)
@@ -819,8 +825,8 @@ final class AudioEngine {
     /// Synchronous in-memory AutoEQ profile lookup. nil = not yet cached.
     private func autoEQProfileForActivation(deviceUID: String) -> AutoEQProfile? {
         guard let device = deviceMonitor.device(for: deviceUID), device.supportsAutoEQ else { return nil }
-        guard let selection = settingsManager.getAutoEQSelection(for: deviceUID), selection.isEnabled else { return nil }
-        return autoEQProfileManager.profile(for: selection.profileID)
+        guard let selection = resolvedAutoEQSelection(for: deviceUID), selection.isEnabled else { return nil }
+        return autoEQProfileManager.profile(for: selection.profileID).map(autoEQProfileForPlayback)
     }
 
     private func tapInitialState(forApp app: AudioApp, primaryDeviceUID: String, deviceVolume: Float) -> TapInitialState {
@@ -852,7 +858,7 @@ final class AudioEngine {
             return
         }
 
-        guard let selection = settingsManager.getAutoEQSelection(for: deviceUID),
+        guard let selection = resolvedAutoEQSelection(for: deviceUID),
               selection.isEnabled else {
             tap.updateAutoEQProfile(nil)
             logger.debug("AutoEQ skip for \(tap.app.name): no selection or disabled for \(device.name)")
@@ -861,7 +867,7 @@ final class AudioEngine {
 
         // Try in-memory first (instant)
         if let profile = autoEQProfileManager.profile(for: selection.profileID) {
-            tap.updateAutoEQProfile(profile)
+            tap.updateAutoEQProfile(autoEQProfileForPlayback(profile))
             return
         }
 
@@ -871,10 +877,10 @@ final class AudioEngine {
             guard let profile = await autoEQProfileManager.resolveProfile(for: selection.profileID) else { return }
             // Verify tap still exists and is still routed to the same device
             guard tap.currentDeviceUID == deviceUID else { return }
-            guard let latestSelection = settingsManager.getAutoEQSelection(for: deviceUID),
+            guard let latestSelection = resolvedAutoEQSelection(for: deviceUID),
                   latestSelection.profileID == selection.profileID,
                   latestSelection.isEnabled else { return }
-            tap.updateAutoEQProfile(profile)
+            tap.updateAutoEQProfile(autoEQProfileForPlayback(profile))
         }
     }
 
@@ -1087,7 +1093,7 @@ final class AudioEngine {
         // already loaded by AutoEQProfileManager.init.
         let selectedProfileIDs: Set<String> = Set(apps.compactMap { app -> String? in
             let deviceUID = appDeviceRouting[app.id] ?? deviceVolumeMonitor.defaultDeviceUID
-            guard let deviceUID, let selection = settingsManager.getAutoEQSelection(for: deviceUID) else { return nil }
+            guard let deviceUID, let selection = resolvedAutoEQSelection(for: deviceUID) else { return nil }
             return selection.isEnabled ? selection.profileID : nil
         })
         let manager = autoEQProfileManager

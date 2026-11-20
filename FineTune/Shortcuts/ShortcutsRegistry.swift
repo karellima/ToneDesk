@@ -15,6 +15,13 @@ protocol AudioEngineDispatching: AnyObject {
     func isAudibleNow(bundleID: String) -> Bool
 }
 
+/// Receives AutoEQ library shortcuts (implemented by `AudioEngine`).
+@MainActor
+protocol AutoEQShortcutHandling: AnyObject {
+    @discardableResult func cycleAutoEQProfile(offset: Int) -> AutoEQProfile?
+    @discardableResult func toggleAutoEQAB() -> AutoEQABSettings.Slot?
+}
+
 @MainActor
 protocol PerAppHUDPresenting: AnyObject {
     func showPerAppVolumeHUD(app: AudioApp, sliderFraction: Double)
@@ -53,6 +60,9 @@ final class ShortcutsRegistry {
     private let audioEngine: any AudioEngineDispatching
     private let hud: any PerAppHUDPresenting
     private var didStart = false
+
+    /// Handler for AutoEQ profile shortcuts. Set after init to keep the initializer stable.
+    @ObservationIgnored weak var autoEQHandler: (any AutoEQShortcutHandling)?
 
     /// Software-emulated key-repeat timing. Carbon hot keys don't auto-repeat,
     /// so holding the chord runs this loop. Values match macOS keyboard defaults.
@@ -93,6 +103,12 @@ final class ShortcutsRegistry {
             adjustTargetVolume(direction: -1)
         case .targetAppMuteToggle:
             toggleTargetMute()
+        case .autoEQNextProfile:
+            autoEQHandler?.cycleAutoEQProfile(offset: 1)
+        case .autoEQPreviousProfile:
+            autoEQHandler?.cycleAutoEQProfile(offset: -1)
+        case .autoEQToggleAB:
+            autoEQHandler?.toggleAutoEQAB()
         }
     }
 
@@ -229,6 +245,9 @@ final class ShortcutsRegistry {
         case .targetAppVolumeUp: "frontmost-app-volume-up"
         case .targetAppVolumeDown: "frontmost-app-volume-down"
         case .targetAppMuteToggle: "frontmost-app-mute-toggle"
+        case .autoEQNextProfile: "autoeq-next-profile"
+        case .autoEQPreviousProfile: "autoeq-previous-profile"
+        case .autoEQToggleAB: "autoeq-toggle-ab"
         }
     }
 }
