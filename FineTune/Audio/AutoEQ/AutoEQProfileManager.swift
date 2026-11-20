@@ -69,6 +69,20 @@ final class AutoEQProfileManager {
         return report
     }
 
+    /// Imported (user library) profiles, unordered.
+    var importedProfiles: [AutoEQProfile] {
+        profiles.values.filter { $0.source == .imported }
+    }
+
+    /// The loader backing imported profiles (used by `AutoEQLibrary`).
+    var profileLoader: AutoEQProfileLoader { loader }
+
+    /// Insert or replace an imported profile in memory (files are written by the caller).
+    func registerImported(_ profile: AutoEQProfile) {
+        profiles[profile.id] = profile
+        rebuildSearchIndex()
+    }
+
     /// Delete an imported profile from disk and catalog.
     func deleteImportedProfile(id: String) {
         guard let profile = profiles[id], profile.source == .imported else { return }

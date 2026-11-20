@@ -6,10 +6,18 @@ import os
 nonisolated final class AutoEQProfileLoader {
     private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "AutoEQProfileLoader")
 
-    private var importDirectory: URL {
+    /// Directory holding imported profiles (`<id>.txt` + `<id>.name`) and `library.json`.
+    let importDirectory: URL
+
+    static var defaultImportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("FineTune")
             .appendingPathComponent("AutoEQ")
+    }
+
+    /// - Parameter directory: Override for tests. Defaults to Application Support/FineTune/AutoEQ.
+    init(directory: URL? = nil) {
+        self.importDirectory = directory ?? Self.defaultImportDirectory
     }
 
     // MARK: - Imported Profiles
@@ -52,7 +60,7 @@ nonisolated final class AutoEQProfileLoader {
     /// Import a ParametricEQ.txt file with full diagnostics (warnings for skipped lines,
     /// a descriptive error when the file is rejected). The file is only copied into the
     /// library when parsing succeeds.
-    func importProfileReport(from url: URL, name: String) -> AutoEQParseReport {
+    func importProfileReport(from url: URL, name: String, id: String? = nil) -> AutoEQParseReport {
         let text: String
         do {
             text = try Self.readText(at: url)
@@ -61,7 +69,7 @@ nonisolated final class AutoEQProfileLoader {
             return AutoEQParseReport(profile: nil, warnings: [], error: .fileError(error.localizedDescription))
         }
 
-        let report = AutoEQParser.parseReport(text: text, name: name, source: .imported)
+        let report = AutoEQParser.parseReport(text: text, name: name, source: .imported, id: id)
         guard let profile = report.profile else {
             logger.warning("Failed to parse imported file: \(name)")
             return report
@@ -90,6 +98,26 @@ nonisolated final class AutoEQProfileLoader {
             if let text = String(data: data, encoding: encoding) { return text }
         }
         throw CocoaError(.fileReadInapplicableStringEncoding)
+    }
+
+    // MARK: - Library File Access
+
+    /// Raw ParametricEQ.txt text of an imported profile.
+    func readProfileText(id: String) -> String? {
+        try? Self.readText(at: importDirectory.appendingPathComponent("\(id).txt"))
+    }
+
+    /// Writes (or overwrites) an imported profile's text and display name.
+    func saveProfile(id: String, text: String, name: String) throws {
+        try FileManager.default.createDirectory(at: importDirectory, withIntermediateDirectories: true)
+        try text.write(to: importDirectory.appendingPathComponent("\(id).txt"), atomically: true, encoding: .utf8)
+        try writeName(id: id, name: name)
+    }
+
+    /// Updates only the display name of an imported profile.
+    func writeName(id: String, name: String) throws {
+        try FileManager.default.createDirectory(at: importDirectory, withIntermediateDirectories: true)
+        try name.write(to: importDirectory.appendingPathComponent("\(id).name"), atomically: true, encoding: .utf8)
     }
 
     /// Delete an imported profile's files from disk.
