@@ -24,7 +24,7 @@ nonisolated final class AutoEQProfileLoader {
             let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "txt" }
             for file in files {
-                let text = try String(contentsOf: file, encoding: .utf8)
+                let text = try Self.readText(at: file)
                 let stableID = file.deletingPathExtension().lastPathComponent
 
                 let nameFile = dir.appendingPathComponent("\(stableID).name")
@@ -46,13 +46,28 @@ nonisolated final class AutoEQProfileLoader {
 
     /// Import a ParametricEQ.txt file. Copies to import directory and returns parsed profile.
     func importProfile(from url: URL, name: String) -> AutoEQProfile? {
-        do {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            guard let profile = AutoEQParser.parse(text: text, name: name, source: .imported) else {
-                logger.warning("Failed to parse imported file: \(name)")
-                return nil
-            }
+        importProfileReport(from: url, name: name).profile
+    }
 
+    /// Import a ParametricEQ.txt file with full diagnostics (warnings for skipped lines,
+    /// a descriptive error when the file is rejected). The file is only copied into the
+    /// library when parsing succeeds.
+    func importProfileReport(from url: URL, name: String) -> AutoEQParseReport {
+        let text: String
+        do {
+            text = try Self.readText(at: url)
+        } catch {
+            logger.error("Failed to read profile: \(error.localizedDescription)")
+            return AutoEQParseReport(profile: nil, warnings: [], error: .fileError(error.localizedDescription))
+        }
+
+        let report = AutoEQParser.parseReport(text: text, name: name, source: .imported)
+        guard let profile = report.profile else {
+            logger.warning("Failed to parse imported file: \(name)")
+            return report
+        }
+
+        do {
             let dir = importDirectory
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let dest = dir.appendingPathComponent("\(profile.id).txt")
@@ -60,12 +75,21 @@ nonisolated final class AutoEQProfileLoader {
             let nameFile = dir.appendingPathComponent("\(profile.id).name")
             try name.write(to: nameFile, atomically: true, encoding: .utf8)
 
-            logger.info("Imported AutoEQ profile: \(name)")
-            return profile
+            logger.info("Imported AutoEQ profile: \(name) (\(profile.filters.count) filters, \(report.warnings.count) warnings)")
+            return report
         } catch {
             logger.error("Failed to import profile: \(error.localizedDescription)")
-            return nil
+            return AutoEQParseReport(profile: nil, warnings: report.warnings, error: .fileError(error.localizedDescription))
         }
+    }
+
+    /// Reads a text file, tolerating UTF-16 (some Windows tools) and Latin-1 encodings.
+    static func readText(at url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        for encoding in [String.Encoding.utf8, .utf16, .isoLatin1] {
+            if let text = String(data: data, encoding: encoding) { return text }
+        }
+        throw CocoaError(.fileReadInapplicableStringEncoding)
     }
 
     /// Delete an imported profile's files from disk.

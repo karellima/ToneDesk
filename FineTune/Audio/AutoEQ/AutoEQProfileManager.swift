@@ -56,10 +56,17 @@ final class AutoEQProfileManager {
 
     /// Import a ParametricEQ.txt file. Copies to app support and adds to catalog.
     func importProfile(from url: URL, name: String) -> AutoEQProfile? {
-        guard let profile = loader.importProfile(from: url, name: name) else { return nil }
-        profiles[profile.id] = profile
-        rebuildSearchIndex()
-        return profile
+        importProfileReport(from: url, name: name).profile
+    }
+
+    /// Import with diagnostics; adds the profile to the catalog on success.
+    func importProfileReport(from url: URL, name: String) -> AutoEQParseReport {
+        let report = loader.importProfileReport(from: url, name: name)
+        if let profile = report.profile {
+            profiles[profile.id] = profile
+            rebuildSearchIndex()
+        }
+        return report
     }
 
     /// Delete an imported profile from disk and catalog.

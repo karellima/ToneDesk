@@ -21,9 +21,25 @@ nonisolated struct AutoEQProfile: Codable, Equatable, Identifiable {
     /// Measurement source (e.g. "oratory1990", "crinacle"). Nil for imported profiles.
     let measuredBy: String?
     /// Sample rate the filter parameters were optimized for (Hz).
-    var optimizedSampleRate: Double
+    /// `nil` means "use the parameters as written at any device rate" (Equalizer APO / REW
+    /// behavior, no frequency pre-warping). Imported profiles use `nil`.
+    var optimizedSampleRate: Double?
 
-    static let maxFilters = 10
+    /// Maximum number of biquad sections a profile may contain.
+    ///
+    /// Technical ceiling: `AutoEQProcessor` pre-allocates delay buffers for this many
+    /// sections so profile swaps never allocate on the audio thread. Profiles that
+    /// exceed it are rejected by the parser with a clear error (never truncated).
+    static let maxFilters = 64
+
+    /// Accepted per-filter gain range (dB). Values outside are rejected as absurd.
+    static let gainRangeDB: ClosedRange<Float> = -30...30
+    /// Accepted preamp range (dB).
+    static let preampRangeDB: ClosedRange<Float> = -30...30
+    /// Accepted filter frequency range (Hz).
+    static let frequencyRangeHz: ClosedRange<Double> = 1...30_000
+    /// Accepted Q range.
+    static let qRange: ClosedRange<Double> = 0.01...100
 
     enum CodingKeys: String, CodingKey {
         case id, name, source, preampDB, filters, measuredBy, optimizedSampleRate
@@ -33,7 +49,7 @@ nonisolated struct AutoEQProfile: Codable, Equatable, Identifiable {
         id: String, name: String, source: AutoEQSource,
         preampDB: Float, filters: [AutoEQFilter],
         measuredBy: String? = nil,
-        optimizedSampleRate: Double = 48000
+        optimizedSampleRate: Double? = 48000
     ) {
         self.id = id
         self.name = name
@@ -52,21 +68,31 @@ nonisolated struct AutoEQProfile: Codable, Equatable, Identifiable {
         preampDB = try container.decode(Float.self, forKey: .preampDB)
         filters = try container.decode([AutoEQFilter].self, forKey: .filters)
         measuredBy = try container.decodeIfPresent(String.self, forKey: .measuredBy)
-        optimizedSampleRate = try container.decodeIfPresent(Double.self, forKey: .optimizedSampleRate) ?? 48000
+        if container.contains(.optimizedSampleRate) {
+            optimizedSampleRate = try container.decodeIfPresent(Double.self, forKey: .optimizedSampleRate)
+        } else {
+            // Legacy encodings omitted the key: imported profiles follow APO semantics,
+            // everything else keeps the historical 48 kHz assumption.
+            optimizedSampleRate = source == .imported ? nil : 48000
+        }
     }
 }
 
 extension AutoEQProfile {
     /// Validates filters using the same rules as the text parser.
+    ///
+    /// Defensive only: the parser already rejects out-of-range values with a message.
+    /// Profiles beyond `maxFilters` cannot be produced by the parser; if one is ever
+    /// constructed directly, the processor refuses it (it never truncates).
     func validated() -> AutoEQProfile {
         let validFilters = filters.filter { f in
-            f.frequency > 0 && f.q > 0 && abs(f.gainDB) <= 30
+            f.frequency > 0 && f.q > 0 && f.gainDB.isFinite && abs(f.gainDB) <= Self.gainRangeDB.upperBound
         }
-        let clampedPreamp = max(-30, min(30, preampDB))
+        let clampedPreamp = max(Self.preampRangeDB.lowerBound, min(Self.preampRangeDB.upperBound, preampDB))
         return AutoEQProfile(
             id: id, name: name, source: source,
             preampDB: clampedPreamp,
-            filters: Array(validFilters.prefix(Self.maxFilters)),
+            filters: validFilters,
             measuredBy: measuredBy,
             optimizedSampleRate: optimizedSampleRate
         )

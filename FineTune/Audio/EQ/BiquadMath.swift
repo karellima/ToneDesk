@@ -131,24 +131,25 @@ enum BiquadMath {
     ///   - filters: Filter parameters from an AutoEQ profile.
     ///   - sampleRate: Device's actual sample rate (Hz).
     ///   - profileOptimizedRate: Sample rate the profile was optimized for (Hz).
-    ///     When different from `sampleRate`, filter frequencies are pre-warped to
-    ///     compensate for the bilinear transform's frequency warping.
+    ///     When non-nil and different from `sampleRate`, filter frequencies are pre-warped to
+    ///     compensate for the bilinear transform's frequency warping. When `nil`, parameters
+    ///     are used exactly as written at the device rate (Equalizer APO / REW behavior).
     static func coefficientsForAutoEQFilters(
         _ filters: [AutoEQFilter],
         sampleRate: Double,
-        profileOptimizedRate: Double = 48000
+        profileOptimizedRate: Double? = 48000
     ) -> [Double] {
         var allCoeffs: [Double] = []
         allCoeffs.reserveCapacity(filters.count * 5)
 
-        let needsPreWarp = abs(profileOptimizedRate - sampleRate) > 1.0
+        let needsPreWarp = profileOptimizedRate.map { abs($0 - sampleRate) > 1.0 } ?? false
 
         for filter in filters {
             var frequency = filter.frequency
 
             // Pre-warp frequency if profile was optimized for a different sample rate
             if needsPreWarp {
-                frequency = preWarpFrequency(frequency, from: profileOptimizedRate, to: sampleRate)
+                frequency = preWarpFrequency(frequency, from: profileOptimizedRate!, to: sampleRate)
             }
 
             // Bypass invalid or above-Nyquist filters (pre-warp can produce

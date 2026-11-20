@@ -1174,14 +1174,21 @@ struct MenuBarPopupView: View {
             guard response == .OK, let url = panel.url else { return }
             let name = url.deletingPathExtension().lastPathComponent
             Task { @MainActor in
-                if let profile = audioEngine.autoEQProfileManager.importProfile(from: url, name: name) {
+                let report = audioEngine.autoEQProfileManager.importProfileReport(from: url, name: name)
+                let message: String?
+                if let profile = report.profile {
                     audioEngine.setAutoEQProfile(for: deviceUID, profileID: profile.id)
-                    autoEQImportError = nil
+                    message = report.warnings.isEmpty
+                        ? nil
+                        : "Imported \(profile.filters.count) filters; \(report.warnings.count) line(s) ignored. \(report.warnings[0])"
                 } else {
-                    autoEQImportError = "Could not read profile — check file format"
-                    importErrorClearTask?.cancel()
+                    message = report.error?.localizedDescription ?? "Could not read profile — check file format"
+                }
+                autoEQImportError = message
+                importErrorClearTask?.cancel()
+                if message != nil {
                     importErrorClearTask = Task {
-                        try? await Task.sleep(for: .seconds(3))
+                        try? await Task.sleep(for: .seconds(8))
                         guard !Task.isCancelled else { return }
                         withAnimation { autoEQImportError = nil }
                     }
