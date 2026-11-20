@@ -362,9 +362,9 @@ final class AudioEngine {
             realMonitor.inputPriorityOrder = { [weak self] in
                 self?.settingsManager.inputDevicePriorityOrder ?? []
             }
-            realMonitor.onBTDeviceSampleRateChanged = { [weak self] uid, newRate in
+            realMonitor.onOutputDeviceSampleRateChanged = { [weak self] uid, newRate in
                 Task { @MainActor [weak self] in
-                    await self?.handleBTDeviceSampleRateChanged(uid: uid, newRate: newRate)
+                    await self?.handleOutputDeviceSampleRateChanged(uid: uid, newRate: newRate)
                 }
             }
         }
@@ -1983,8 +1983,11 @@ final class AudioEngine {
     /// Recreates the aggregate at the device's new rate for every tap on a BT output that changed
     /// sample rate (A2DP↔SCO), so each tap's IOProc re-rates to match. Falls back to a full tap
     /// recreate if the in-controller recreation throws.
-    private func handleBTDeviceSampleRateChanged(uid: String, newRate: Double) async {
-        logger.info("[RATE] BT output \(uid, privacy: .public) → \(newRate, format: .fixed(precision: 0)) Hz — recreating affected taps (clean dip)")
+    /// Recreates every tap routed to `uid` at the device's new nominal rate. Used for Bluetooth
+    /// A2DP ↔ SCO switches and for USB DACs re-rated while playing (#395, #463): a running
+    /// aggregate keeps its old rate and the HAL drops audio every IO cycle until it is rebuilt.
+    private func handleOutputDeviceSampleRateChanged(uid: String, newRate: Double) async {
+        logger.info("[RATE] Output \(uid, privacy: .public) → \(newRate, format: .fixed(precision: 0)) Hz — recreating affected taps (clean dip)")
         let affected = taps.filter { $0.value.currentDeviceUIDs.contains(uid) }
         for (pid, tap) in affected {
             do {
