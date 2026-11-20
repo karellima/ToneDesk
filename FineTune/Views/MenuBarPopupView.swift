@@ -147,6 +147,7 @@ struct MenuBarPopupView: View {
         .preferredColorScheme(audioEngine.settingsManager.appSettings.appearance.swiftUIColorScheme)
         .environment(\.appearancePreference, audioEngine.settingsManager.appSettings.appearance)
         .onAppear {
+            AutoEQStatusMenu.openSettingsAction = { openSettingsWindow() }
             updateSortedDevices()
             updateSortedInputDevices()
             pairedDevices = audioEngine.bluetoothDeviceMonitor.pairedDevices
@@ -618,6 +619,7 @@ struct MenuBarPopupView: View {
                         onAutoEQPreampToggle: {
                             audioEngine.setAutoEQPreampEnabled(!audioEngine.autoEQPreampEnabled)
                         },
+                        autoEQLibraryProfiles: audioEngine.autoEQLibrary.profiles,
                         isFocused: hasKeyboardEngaged && selectedRow == .device(uid: device.uid),
                         iconOverrideSymbol: audioEngine.settingsManager.getDeviceIconOverride(for: device.uid)
                     )
@@ -1166,23 +1168,28 @@ struct MenuBarPopupView: View {
         NSApp.keyWindow?.resignKey()
 
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType.plainText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Select an AutoEQ ParametricEQ.txt file"
+        panel.allowedContentTypes = [UTType.plainText, UTType.folder]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.message = "Select ParametricEQ.txt files or a folder — they are saved in your profile library"
         panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            let name = url.deletingPathExtension().lastPathComponent
+            guard response == .OK, !panel.urls.isEmpty else { return }
+            let urls = panel.urls
             Task { @MainActor in
-                let report = audioEngine.autoEQProfileManager.importProfileReport(from: url, name: name)
+                let summary = audioEngine.autoEQLibrary.importItems(at: urls)
                 let message: String?
-                if let profile = report.profile {
+                if summary.imported.count == 1, let profile = summary.imported.first {
+                    // Single file: apply it to the device the picker was opened from.
                     audioEngine.setAutoEQProfile(for: deviceUID, profileID: profile.id)
-                    message = report.warnings.isEmpty
+                    message = summary.warnings.isEmpty
                         ? nil
-                        : "Imported \(profile.filters.count) filters; \(report.warnings.count) line(s) ignored. \(report.warnings[0])"
+                        : "Imported \(profile.filters.count) filters; \(summary.warnings.count) line(s) ignored. \(summary.warnings[0])"
+                } else if summary.imported.isEmpty, let failure = summary.failures.first {
+                    message = "\(failure.fileName): \(failure.message)"
+                } else if summary.imported.isEmpty, !summary.duplicates.isEmpty {
+                    message = "Already in your library."
                 } else {
-                    message = report.error?.localizedDescription ?? "Could not read profile — check file format"
+                    message = summary.message + " — pick one below or manage them in Settings › Profiles."
                 }
                 autoEQImportError = message
                 importErrorClearTask?.cancel()

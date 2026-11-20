@@ -114,6 +114,9 @@ struct ShortcutsTab: View {
         case .targetAppVolumeUp: "Raise volume for the app playing audio"
         case .targetAppVolumeDown: "Lower volume for the app playing audio"
         case .targetAppMuteToggle: "Mute or unmute the app playing audio"
+        case .autoEQNextProfile: "Apply the next profile from your EQ library to the default output"
+        case .autoEQPreviousProfile: "Apply the previous profile from your EQ library to the default output"
+        case .autoEQToggleAB: "Switch between the A and B profiles of your A/B comparison"
         }
     }
 }

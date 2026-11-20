@@ -52,6 +52,8 @@ struct FineTuneApp: App {
     @State private var resolver: TargetAppResolver
     @StateObject private var updateManager = UpdateManager()
     @State private var showMenuBarExtra = true
+    /// Right-click menu on the status item (profile quick switch + A/B).
+    @State private var autoEQStatusMenu: AutoEQStatusMenu
 
     /// Snapshot icon computed at launch from the user's chosen style and the current
     /// default-device volume/mute. The coordinator keeps it in sync afterwards.
@@ -73,7 +75,7 @@ struct FineTuneApp: App {
                 updateManager: updateManager
             )
         }
-        FluidMenuBarExtra("FineTune", image: launchIconImage, isInserted: $showMenuBarExtra) {
+        FluidMenuBarExtra("FineTune", image: launchIconImage, isInserted: $showMenuBarExtra, menu: autoEQStatusMenu.menu) {
             menuBarContent
         }
     }
@@ -111,6 +113,7 @@ struct FineTuneApp: App {
         let permission = AudioRecordingPermission()
         let engine = AudioEngine(permission: permission, settingsManager: settings, autoEQProfileManager: profileManager)
         _audioEngine = State(initialValue: engine)
+        _autoEQStatusMenu = State(initialValue: AutoEQStatusMenu(engine: engine))
 
         // Media keys / HUD services — instantiated at app scope so the tap
         // and HUD panel outlive popup open/close cycles.
@@ -218,6 +221,7 @@ struct FineTuneApp: App {
             audioEngine: engine,
             hud: hud
         )
+        registry.autoEQHandler = engine
         _menuBarPopupController = State(initialValue: popupController)
         _shortcutsRegistry = State(initialValue: registry)
         _resolver = State(initialValue: resolver)

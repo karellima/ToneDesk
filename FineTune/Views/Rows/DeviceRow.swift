@@ -41,6 +41,8 @@ struct DeviceRow: View {
     let autoEQImportError: String?
     let autoEQPreampEnabled: Bool
     let onAutoEQPreampToggle: (() -> Void)?
+    /// User library profiles for one-click switching in the AutoEQ popover.
+    let autoEQLibraryProfiles: [AutoEQProfile]
     let isFocused: Bool
     let iconOverrideSymbol: String?
 
@@ -93,6 +95,7 @@ struct DeviceRow: View {
         autoEQImportError: String? = nil,
         autoEQPreampEnabled: Bool = true,
         onAutoEQPreampToggle: (() -> Void)? = nil,
+        autoEQLibraryProfiles: [AutoEQProfile] = [],
         isFocused: Bool = false,
         iconOverrideSymbol: String? = nil
     ) {
@@ -116,6 +119,7 @@ struct DeviceRow: View {
         self.autoEQImportError = autoEQImportError
         self.autoEQPreampEnabled = autoEQPreampEnabled
         self.onAutoEQPreampToggle = onAutoEQPreampToggle
+        self.autoEQLibraryProfiles = autoEQLibraryProfiles
         self.isFocused = isFocused
         self.iconOverrideSymbol = iconOverrideSymbol
         self._sliderValue = State(initialValue: Self.volumeToSlider(volume, backend: volumeBackend))
@@ -182,7 +186,8 @@ struct DeviceRow: View {
                         isCorrectionEnabled: autoEQEnabled,
                         onCorrectionToggle: onAutoEQToggle,
                         preampEnabled: autoEQPreampEnabled,
-                        onPreampToggle: onAutoEQPreampToggle
+                        onPreampToggle: onAutoEQPreampToggle,
+                        libraryProfiles: autoEQLibraryProfiles
                     )
                 }
             }

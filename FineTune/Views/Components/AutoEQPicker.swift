@@ -16,6 +16,8 @@ struct AutoEQPicker: View {
     var onCorrectionToggle: ((Bool) -> Void)?
     var preampEnabled: Bool = true
     var onPreampToggle: (() -> Void)?
+    /// User library profiles shown as a one-click list above the search panel.
+    var libraryProfiles: [AutoEQProfile] = []
 
     @State private var isExpanded = false
     @State private var isButtonHovered = false
@@ -85,6 +87,18 @@ struct AutoEQPicker: View {
 
     private var popoverContent: some View {
         VStack(spacing: 0) {
+            if !libraryProfiles.isEmpty {
+                AutoEQLibraryQuickList(
+                    profiles: libraryProfiles,
+                    selectedProfileID: selection?.profileID,
+                    isCorrectionEnabled: isCorrectionEnabled,
+                    onSelect: { profile in
+                        onSelect(profile)
+                        withAnimation(.easeOut(duration: 0.15)) { isExpanded = false }
+                    }
+                )
+                .padding(.bottom, DesignTokens.Spacing.xs)
+            }
             AutoEQSearchPanel(
                 profileManager: profileManager,
                 favoriteIDs: favoriteIDs,

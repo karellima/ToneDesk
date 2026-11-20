@@ -13,7 +13,7 @@ struct SettingsRootView: View {
     @ObservedObject var updateManager: UpdateManager
 
     enum Section: String, Hashable, CaseIterable, Identifiable {
-        case general, audio, shortcuts, updates, about
+        case general, audio, profiles, shortcuts, updates, about
         var id: Self { self }
     }
 
@@ -39,6 +39,10 @@ struct SettingsRootView: View {
             .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
             .tag(Section.audio)
 
+            ProfilesTab(settings: settings, audioEngine: audioEngine)
+                .tabItem { Label("Profiles", systemImage: "slider.vertical.3") }
+                .tag(Section.profiles)
+
             ShortcutsTab(
                 settings: settings,
                 accessibility: accessibility,
@@ -61,5 +65,15 @@ struct SettingsRootView: View {
         .preferredColorScheme(settings.appSettings.appearance.swiftUIColorScheme)
         .background(WindowAppearanceBridge(appearance: settings.appSettings.appearance.nsAppearance))
         .background(WindowTitleBridge(title: "FineTune Settings"))
+        .onAppear(perform: consumeNavigationRequest)
+        .onChange(of: SettingsNavigation.shared.requestedSection) { _, _ in consumeNavigationRequest() }
+    }
+
+    /// Selects a tab requested from outside SwiftUI (e.g. the menu bar right-click menu).
+    private func consumeNavigationRequest() {
+        guard let raw = SettingsNavigation.shared.requestedSection,
+              let section = Section(rawValue: raw) else { return }
+        selection = section
+        SettingsNavigation.shared.requestedSection = nil
     }
 }
