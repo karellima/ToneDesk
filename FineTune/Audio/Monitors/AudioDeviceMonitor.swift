@@ -59,15 +59,19 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
     /// Listeners for kAudioDevicePropertyDataSource changes on built-in devices (headphone jack detection)
     @ObservationIgnored private var dataSourceListeners: [AudioDeviceID: AudioObjectPropertyListenerBlock] = [:]
 
-    /// Called when a BT output device crosses the A2DP ↔ SCO/HFP sample-rate boundary (44.1 kHz).
+    /// Called when an output device's nominal sample rate changes: Bluetooth A2DP ↔ SCO/HFP
+    /// switches, and USB/other DACs re-rated by Audio MIDI Setup, LosslessSwitcher, players
+    /// with sample-rate matching, etc. A running aggregate cannot follow a sub-device rate
+    /// change, so affected taps must be recreated (issues #395, #463).
     /// Off-protocol (on the concrete monitor) — wired via the `as? AudioDeviceMonitor` cast, like the
     /// priority-order closures; no-ops under a non-AudioDeviceMonitor provider.
-    var onBTDeviceSampleRateChanged: ((_ uid: String, _ newRate: Double) -> Void)?
+    var onOutputDeviceSampleRateChanged: ((_ uid: String, _ newRate: Double) -> Void)?
 
-    /// Listeners for kAudioDevicePropertyNominalSampleRate changes on BT output devices (A2DP↔SCO).
+    /// Listeners for kAudioDevicePropertyNominalSampleRate changes on output devices.
     @ObservationIgnored private var sampleRateListeners: [AudioDeviceID: AudioObjectPropertyListenerBlock] = [:]
     @ObservationIgnored private var lastKnownSampleRates: [AudioDeviceID: Double] = [:]
     @ObservationIgnored private var sampleRateDebounce: [AudioDeviceID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var rateChangeThrottle = RateChangeThrottle()
 
     /// Debounces rapid HAL device-list notifications (e.g. Bluetooth connect fires 2-3 in ~20ms).
     /// Querying device properties during the burst produces HALC_ShellObject errors because
@@ -80,6 +84,25 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
     /// no change). Fires on ANY change (A2DP↔SCO and within-band) — the aggregate must always match.
     nonisolated static func isMeaningfulRateChange(oldRate: Double, newRate: Double) -> Bool {
         newRate > 0 && newRate != oldRate
+    }
+
+    /// Caps rate-change notifications per device so a device flapping between two rates
+    /// can't trap taps in a recreate loop: at most `limit` within `window` seconds.
+    nonisolated struct RateChangeThrottle {
+        var limit = 6
+        var window: TimeInterval = 10
+        private var history: [String: [Date]] = [:]
+
+        mutating func allow(_ uid: String, now: Date = Date()) -> Bool {
+            var recent = (history[uid] ?? []).filter { now.timeIntervalSince($0) < window }
+            guard recent.count < limit else {
+                history[uid] = recent
+                return false
+            }
+            recent.append(now)
+            history[uid] = recent
+            return true
+        }
     }
 
     func start() {
@@ -218,8 +241,7 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
             inputDevicesByID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
 
             syncDataSourceListeners(outputDeviceIDs: outputDeviceList.map(\.id))
-            let btOutputIDs = Set(outputDeviceList.filter { $0.id.isBluetoothDevice() }.map(\.id))
-            syncSampleRateListeners(btOutputDeviceIDs: btOutputIDs)
+            syncSampleRateListeners(outputDeviceIDs: Set(outputDeviceList.map(\.id)))
 
         } catch {
             logger.error("Failed to refresh device list: \(error.localizedDescription)")
@@ -278,19 +300,19 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
         }
     }
 
-    // MARK: - Bluetooth Sample-Rate Listeners (A2DP ↔ SCO/HFP)
+    // MARK: - Output Sample-Rate Listeners
 
-    /// Installs/removes kAudioDevicePropertyNominalSampleRate listeners on BT output devices so
-    /// A2DP ↔ SCO/HFP mode switches (which keep the same AudioObjectID, only changing the nominal
-    /// rate) trigger tap re-evaluation.
-    private func syncSampleRateListeners(btOutputDeviceIDs: Set<AudioDeviceID>) {
+    /// Installs/removes kAudioDevicePropertyNominalSampleRate listeners on output devices so
+    /// rate changes that keep the same AudioObjectID (BT A2DP ↔ SCO/HFP, a USB DAC switched
+    /// from 44.1 to 96 kHz) trigger tap recreation at the new rate.
+    private func syncSampleRateListeners(outputDeviceIDs: Set<AudioDeviceID>) {
         let currentIDs = Set(sampleRateListeners.keys)
 
-        for deviceID in currentIDs.subtracting(btOutputDeviceIDs) {
+        for deviceID in currentIDs.subtracting(outputDeviceIDs) {
             removeSampleRateListener(for: deviceID)
         }
 
-        for deviceID in btOutputDeviceIDs.subtracting(currentIDs) {
+        for deviceID in outputDeviceIDs.subtracting(currentIDs) {
             guard let uid = devicesByID[deviceID]?.uid else { continue }
             var address = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyNominalSampleRate,
@@ -307,12 +329,12 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
                 sampleRateListeners[deviceID] = block
                 lastKnownSampleRates[deviceID] = (try? deviceID.readNominalSampleRate()) ?? 0
             } else {
-                logger.warning("Failed to add sample rate listener for BT device \(deviceID): \(status)")
+                logger.warning("Failed to add sample rate listener for device \(deviceID): \(status)")
             }
         }
     }
 
-    /// 150 ms debounce — the HAL fires several nominal-rate notifications while SCO settles.
+    /// 150 ms debounce — the HAL fires several nominal-rate notifications while a rate settles.
     private func scheduleSampleRateCheck(forDeviceID deviceID: AudioDeviceID, uid: String) {
         sampleRateDebounce[deviceID]?.cancel()
         sampleRateDebounce[deviceID] = Task { @MainActor [weak self] in
@@ -334,8 +356,12 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
         guard Self.isMeaningfulRateChange(oldRate: oldRate, newRate: newRate) else { return }
         lastKnownSampleRates[deviceID] = newRate
 
-        logger.info("[RATE] BT device \(uid, privacy: .public) \(oldRate, format: .fixed(precision: 0)) → \(newRate, format: .fixed(precision: 0)) Hz (call mode: \(newRate < 44_100))")
-        onBTDeviceSampleRateChanged?(uid, newRate)
+        guard rateChangeThrottle.allow(uid) else {
+            logger.warning("[RATE] Output device \(uid, privacy: .public) is changing rate repeatedly — ignoring until it settles")
+            return
+        }
+        logger.info("[RATE] Output device \(uid, privacy: .public) \(oldRate, format: .fixed(precision: 0)) → \(newRate, format: .fixed(precision: 0)) Hz")
+        onOutputDeviceSampleRateChanged?(uid, newRate)
     }
 
     private func removeSampleRateListener(for deviceID: AudioDeviceID) {
@@ -351,7 +377,7 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
         )
         let status = AudioObjectRemovePropertyListenerBlock(deviceID, &address, .main, block)
         if status != noErr && status != OSStatus(kAudioHardwareBadObjectError) {
-            logger.warning("Failed to remove sample rate listener for BT device \(deviceID): \(status)")
+            logger.warning("Failed to remove sample rate listener for device \(deviceID): \(status)")
         }
     }
 
