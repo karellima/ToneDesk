@@ -61,6 +61,10 @@ Switching profiles, toggling correction or the preamp during playback crossfades
 - **[AutoEQ GitHub](https://github.com/jaakkopasanen/AutoEq)** — The full repository of measurements and generated profiles.
 - **Custom measurements** — If you've measured your headphones yourself (e.g., with a MiniDSP EARS or similar), you can create a ParametricEQ.txt file in any text editor following the format above.
 
+## Profile Library
+
+Imported profiles are kept in a library (Settings › Profiles). From there you can import several files or a whole folder (or drag them onto the window), rename, duplicate, delete, favorite and reorder profiles, see each profile's preamp and filters, set up an A/B comparison with optional level matching, and export or restore a `.zip` backup. Right-click the menu bar icon to switch profiles for the default output with one click.
+
 ## Managing Profiles
 
 - Each device remembers its assigned profile independently

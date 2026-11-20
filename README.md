@@ -101,6 +101,20 @@ This fork (karellima/FineTune) focuses on room correction with REW-generated pro
 - **Imported profiles match REW / Equalizer APO**: filters are applied exactly as written at any sample rate (no frequency pre-warping for imported files). Coefficients are verified against the RBJ cookbook at 44.1, 48 and 96 kHz in unit tests.
 - **Click-free profile switching**: changing profile, correction or preamp during playback crossfades over 25 ms.
 - **Preamp fix**: the preamp setting is now kept when audio moves to another output device.
+- **Profile library** (Settings › Profiles): imported profiles are kept by the app. Import many files or whole folders at once, or drag them onto the Settings window. Rename, duplicate, delete, favorite and reorder profiles; expand a row to see its preamp and filters.
+- **Quick switching**: right-click the menu bar icon to pick a profile for the default output with one click (the active one is checked), or use the "My Profiles" list in the AutoEQ popover. Next/previous profile shortcuts can be recorded in Settings › Shortcuts.
+- **A/B comparison**: choose profiles A and B in Settings › Profiles and switch with one click (menu, Settings or a shortcut). Optional level matching attenuates the louder profile using an approximate LUFS estimate (K-weighted pink noise), so you compare tone instead of loudness.
+- **Assignments survive USB port changes**: a device's profile is remembered by its name and manufacturer too, not only by its CoreAudio UID.
+- **Backup**: export the whole library to a `.zip` and restore it on any Mac (Settings › Profiles › Backup).
+
+### Using the profile library
+
+1. Open **Settings › Profiles** and click **Import…** (choose files or a folder), or drag `.txt` files or a folder onto the window. Files that are not profiles (e.g. a README) are listed as failed; nothing else is affected.
+2. Right-click a profile › **Apply to …** or right-click the menu bar icon and pick it. Switching during playback crossfades, without clicks.
+3. For A/B: right-click profiles › **Set as A** / **Set as B**, keep **Level-match** on, and press **Start A/B** (or the "Toggle EQ A/B" shortcut). The menu shows which one is playing.
+4. Back up with **Backup › Export Backup…**.
+
+Settings are stored in `~/Library/Application Support/FineTune/settings.json` (schema v13). When an older file is upgraded, a copy is kept as `settings.v<old>.backup.json` next to it. Profiles live in `~/Library/Application Support/FineTune/AutoEQ/`.
 
 ## Documentation
 
