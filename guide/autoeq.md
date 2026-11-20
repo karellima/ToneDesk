@@ -46,7 +46,13 @@ Filter 3: ON HSC Fc 8000 Hz Gain 2.1 dB Q 0.71
 | `LS` / `LSC` | Low shelf | Boost or cut everything below a frequency |
 | `HS` / `HSC` | High shelf | Boost or cut everything above a frequency |
 
-Up to 10 filters per profile. The `Preamp` line sets a global gain offset to prevent clipping.
+Up to 64 filters per profile. Files with more filters are rejected with a clear message (nothing is silently truncated). Per-filter gain accepts ±30 dB, Fc 1 Hz–30 kHz and Q 0.01–100; out-of-range values are rejected with the offending line number. Unknown or unsupported lines (e.g. `Device:`, `LP`, `LS 12dB`) are skipped and reported as warnings. Shelves without a `Q` use Q = 0.707.
+
+The `Preamp` line sets a global gain offset to prevent clipping. It is applied while the **Preamp** switch in the picker is on.
+
+Imported files are applied exactly as written at any device sample rate (44.1, 48, 96 kHz…), matching Equalizer APO and REW. Profiles from the built-in AutoEQ database keep their 48 kHz frequency correction.
+
+Switching profiles, toggling correction or the preamp during playback crossfades over 25 ms, so there are no clicks.
 
 ## Where to Get Profiles
 

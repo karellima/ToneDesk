@@ -93,6 +93,15 @@ That's it. Adjust sliders, route audio, and explore EQ from the menu bar.
 - **Light or Dark theme** — Settings → General → Theme matches macOS or locks FineTune to Light or Dark. The menu bar popup, every popover, and the volume HUD switch immediately.
 - **Popup density** — Settings → General → Popup Size picks **Compact / Comfortable / Spacious** with a live tile preview. Compact fits more apps on small screens; Spacious gives bigger hit areas for trackpads.
 
+## About this fork
+
+This fork (karellima/FineTune) focuses on room correction with REW-generated profiles. Changes compared to upstream:
+
+- **Parametric EQ with up to 64 filters** (was 10). Larger files are rejected with a clear error instead of being truncated; out-of-range values and unknown lines are reported.
+- **Imported profiles match REW / Equalizer APO**: filters are applied exactly as written at any sample rate (no frequency pre-warping for imported files). Coefficients are verified against the RBJ cookbook at 44.1, 48 and 96 kHz in unit tests.
+- **Click-free profile switching**: changing profile, correction or preamp during playback crossfades over 25 ms.
+- **Preamp fix**: the preamp setting is now kept when audio moves to another output device.
+
 ## Documentation
 
 - **[AutoEQ & Headphone Correction](guide/autoeq.md)** — Apply frequency correction from the [AutoEQ](https://github.com/jaakkopasanen/AutoEq) project, import [EqualizerAPO](https://sourceforge.net/projects/equalizerapo/) profiles, or browse [autoeq.app](https://www.autoeq.app/)
