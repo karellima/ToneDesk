@@ -1021,6 +1021,9 @@ final class ProcessTapController: ProcessTapControlling {
         secondaryEQProcessor = secEQ
 
         let secAutoEQ = AutoEQProcessor(sampleRate: sampleRate)
+        // Carry the preamp mode over before applying the profile; a fresh processor
+        // defaults to preamp-on, which re-enabled the preamp after a device switch.
+        secAutoEQ.setPreampEnabled(autoEQProcessor?.isPreampEnabled ?? true)
         if let profile = autoEQProcessor?.currentProfile {
             secAutoEQ.updateProfile(profile)
         }
