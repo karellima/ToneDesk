@@ -18,6 +18,18 @@ struct ProfilesTab: View {
     @State private var statusMessage: String?
     @State private var statusIsError = false
     @State private var isDropTargeted = false
+    @AppStorage("abGraphMode") private var graphModeRaw: String = FrequencyResponseGraphView.Mode.overlay.rawValue
+
+    private var graphMode: FrequencyResponseGraphView.Mode {
+        FrequencyResponseGraphView.Mode(rawValue: graphModeRaw) ?? .overlay
+    }
+
+    private var graphModeBinding: Binding<FrequencyResponseGraphView.Mode> {
+        Binding(
+            get: { graphMode },
+            set: { graphModeRaw = $0.rawValue }
+        )
+    }
 
     private var library: AutoEQLibrary { audioEngine.autoEQLibrary }
 
@@ -71,7 +83,7 @@ struct ProfilesTab: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Profile Library")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                 Text(activeLine)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -102,69 +114,160 @@ struct ProfilesTab: View {
 
     private var abSection: some View {
         let ab = audioEngine.autoEQAB
+        let activeSlot = audioEngine.activeAutoEQABSlot
+        let trims = ab.levelMatch ? audioEngine.autoEQABTrims : nil
+        let profA = ab.profileA.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
+        let profB = ab.profileB.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
+
         return SettingsSection("A/B Comparison") {
-            HStack(spacing: 12) {
-                slotPicker("A", selection: ab.profileA, slot: .a)
-                slotPicker("B", selection: ab.profileB, slot: .b)
-                Spacer(minLength: 8)
-                Toggle("Level-match", isOn: Binding(
-                    get: { ab.levelMatch },
-                    set: { audioEngine.setAutoEQABLevelMatch($0) }
-                ))
-                .toggleStyle(.checkbox)
-                .help("Attenuates the louder profile (approximate LUFS, K-weighted pink noise) so you compare sound, not volume")
-                Button(abButtonTitle) { audioEngine.toggleAutoEQAB() }
-                    .disabled(!ab.isConfigured)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    ABSlotCard(
+                        slot: .a,
+                        profile: profA,
+                        profiles: library.profiles,
+                        isPlaying: activeSlot == .a,
+                        isConfigured: ab.isConfigured,
+                        levelTrimDB: trims?.a,
+                        onActivate: { activateABSlot(.a, ab: ab) },
+                        onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .a) }
+                    )
+                    ABSlotCard(
+                        slot: .b,
+                        profile: profB,
+                        profiles: library.profiles,
+                        isPlaying: activeSlot == .b,
+                        isConfigured: ab.isConfigured,
+                        levelTrimDB: trims?.b,
+                        onActivate: { activateABSlot(.b, ab: ab) },
+                        onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .b) }
+                    )
+                }
+
+                HStack(spacing: 10) {
+                    Picker("Graph Mode", selection: graphModeBinding) {
+                        Text("Overlay").tag(FrequencyResponseGraphView.Mode.overlay)
+                        Text("Difference").tag(FrequencyResponseGraphView.Mode.difference)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+
+                    Text("Click a side to listen. Your A/B shortcut also switches.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Toggle("Level-match", isOn: Binding(
+                        get: { ab.levelMatch },
+                        set: { audioEngine.setAutoEQABLevelMatch($0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .help("Attenuates the louder profile (approximate LUFS, K-weighted pink noise) so you compare sound, not volume")
+                }
+                .controlSize(.small)
+
+                if ab.isConfigured, let profA, let profB {
+                    let curveA = FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate)
+                    let curveB = FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate)
+                    let peak = max(
+                        curveA.map { abs($0.magnitudeDB) }.max() ?? 0,
+                        curveB.map { abs($0.magnitudeDB) }.max() ?? 0
+                    )
+                    let maxDB: Double = peak <= 6 ? 7.5 : 18.0
+                    let highlight: FrequencyResponseGraphView.Highlight? = switch activeSlot {
+                    case .a: .primary
+                    case .b: .secondary
+                    case nil: nil
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        abGraphLegend(activeSlot: activeSlot)
+                        FrequencyResponseGraphView(
+                            primaryCurve: curveA,
+                            secondaryCurve: curveB,
+                            maxDB: maxDB,
+                            height: 110,
+                            highlight: highlight,
+                            mode: graphMode,
+                            showsLegend: false
+                        )
+                    }
+                }
             }
-            .controlSize(.small)
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            if ab.isConfigured, let trims = audioEngine.autoEQABTrims {
-                SettingsRowDivider()
-                Text(String(format: "Level match: A %.1f dB · B %.1f dB", trims.a, trims.b))
-                    .font(.system(size: 11))
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func activateABSlot(_ slot: AutoEQABSettings.Slot, ab: AutoEQABSettings) {
+        guard ab.isConfigured else { return }
+        guard audioEngine.activeAutoEQABSlot != slot else { return }
+        if audioEngine.activeAutoEQABSlot == nil && slot == .b {
+            audioEngine.selectAutoEQProfileForActiveDevice(ab.profileB)
+        } else {
+            audioEngine.toggleAutoEQAB()
+        }
+    }
+
+    @ViewBuilder
+    private func abGraphLegend(activeSlot: AutoEQABSettings.Slot?) -> some View {
+        HStack(spacing: 14) {
+            if graphMode == .overlay {
+                HStack(spacing: 5) {
+                    CurveSwatch(color: DesignTokens.Colors.accentPrimary, dashed: false, width: 12, lineWidth: 2)
+                    Text("A")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    if activeSlot == .a {
+                        playingLegendDot
+                    }
+                }
+                HStack(spacing: 5) {
+                    CurveSwatch(color: Color(nsColor: .systemOrange), dashed: true, width: 12, lineWidth: 2)
+                    Text("B")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    if activeSlot == .b {
+                        playingLegendDot
+                    }
+                }
+            } else {
+                Text("B − A")
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(nsColor: .systemOrange).opacity(0.6))
+                        .frame(width: 8, height: 8)
+                    Text("B louder")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(DesignTokens.Colors.accentPrimary.opacity(0.6))
+                        .frame(width: 8, height: 8)
+                    Text("A louder")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
             }
-            if ab.isConfigured,
-               let idA = ab.profileA, let idB = ab.profileB,
-               let profA = audioEngine.autoEQProfileManager.profile(for: idA),
-               let profB = audioEngine.autoEQProfileManager.profile(for: idB) {
-                SettingsRowDivider()
-                FrequencyResponseGraphView(
-                    primaryCurve: FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate),
-                    secondaryCurve: FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate),
-                    primaryLabel: "A: \(profA.name)",
-                    secondaryLabel: "B: \(profB.name)",
-                    height: 92
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
+            Spacer()
         }
     }
 
-    private var abButtonTitle: String {
-        switch audioEngine.activeAutoEQABSlot {
-        case .a: "Playing A · Switch to B"
-        case .b: "Playing B · Switch to A"
-        case nil: "Start A/B"
+    private var playingLegendDot: some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(Color(nsColor: .systemGreen))
+                .frame(width: 5, height: 5)
+            Text("playing")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color(nsColor: .systemGreen))
         }
-    }
-
-    private func slotPicker(_ label: String, selection: String?, slot: AutoEQABSettings.Slot) -> some View {
-        Picker(label, selection: Binding(
-            get: { selection ?? "" },
-            set: { audioEngine.setAutoEQABProfile($0.isEmpty ? nil : $0, slot: slot) }
-        )) {
-            Text("—").tag("")
-            ForEach(library.profiles) { profile in
-                Text(profile.name).tag(profile.id)
-            }
-        }
-        .frame(maxWidth: 200)
     }
 
     // MARK: - List
@@ -452,5 +555,146 @@ struct ProfilesTab: View {
             guard panel.runModal() == .OK, let url = panel.url else { return }
             onConfirm(url)
         }
+    }
+}
+
+// MARK: - A/B Slot Card
+
+private struct ABSlotCard: View {
+    let slot: AutoEQABSettings.Slot
+    let profile: AutoEQProfile?
+    let profiles: [AutoEQProfile]
+    let isPlaying: Bool
+    let isConfigured: Bool
+    let levelTrimDB: Float?
+    let onActivate: () -> Void
+    let onSelectProfile: (String?) -> Void
+
+    @State private var isHovered = false
+
+    private var letter: String { slot == .a ? "A" : "B" }
+    private var swatchColor: Color { slot == .a ? DesignTokens.Colors.accentPrimary : Color(nsColor: .systemOrange) }
+    private var isDashed: Bool { slot == .b }
+    private var green: Color { Color(nsColor: .systemGreen) }
+
+    private var metadataLine: String {
+        guard let profile else { return "Not assigned" }
+        var parts: [String] = []
+        if let levelTrimDB {
+            parts.append(String(format: "Level %.1f dB", levelTrimDB))
+        }
+        parts.append(String(format: "Preamp %.1f dB", profile.preampDB))
+        parts.append("\(profile.filters.count) \(profile.filters.count == 1 ? "filter" : "filters")")
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(letter)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(Color.primary.opacity(0.12)))
+
+                CurveSwatch(color: swatchColor, dashed: isDashed, width: 14, lineWidth: 2)
+
+                if isPlaying {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(green)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: green, radius: 3)
+                        Text("Playing")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(green)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                Menu {
+                    Button("—") { onSelectProfile(nil) }
+                    if !profiles.isEmpty {
+                        Divider()
+                    }
+                    ForEach(profiles) { candidate in
+                        Button {
+                            onSelectProfile(candidate.id)
+                        } label: {
+                            if candidate.id == profile?.id {
+                                Label(candidate.name, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Choose profile for Slot \(letter)")
+                .accessibilityLabel("Choose profile for Slot \(letter)")
+            }
+
+            Text(profile?.name ?? "Select profile…")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(profile == nil ? .secondary : .primary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(metadataLine)
+                .font(.system(size: 10.5).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(isPlaying ? green.opacity(0.06) : Color.primary.opacity(isHovered && isConfigured ? 0.06 : 0.04))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(
+                    isPlaying ? green.opacity(0.85) : Color.primary.opacity(0.08),
+                    lineWidth: 1
+                )
+        }
+        .overlay {
+            if isPlaying {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(green.opacity(0.16), lineWidth: 3)
+                    .padding(-1.5)
+                    .allowsHitTesting(false)
+            }
+        }
+        .shadow(color: isPlaying ? green.opacity(0.22) : .clear, radius: 9)
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .onTapGesture {
+            guard isConfigured else { return }
+            onActivate()
+        }
+        .onHover { isHovered = $0 }
+        .opacity(isConfigured ? 1.0 : 0.72)
+        .animation(.easeOut(duration: 0.2), value: isPlaying)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Slot \(letter), \(profile?.name ?? "None")")
+        .accessibilityValue(isPlaying ? "Playing" : "")
+        .accessibilityAddTraits(.isButton)
     }
 }
