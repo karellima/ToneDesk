@@ -12,6 +12,9 @@ struct ProfilesTab: View {
     @Bindable var audioEngine: AudioEngine
 
     @State private var expandedIDs: Set<String> = []
+    @State private var expandedAllFilterIDs: Set<String> = []
+    @State private var hoveredID: String?
+    @State private var query = ""
     @State private var editingID: String?
     @State private var draftName = ""
     @State private var pendingDelete: AutoEQProfile?
@@ -19,6 +22,12 @@ struct ProfilesTab: View {
     @State private var statusIsError = false
     @State private var isDropTargeted = false
     @AppStorage("abGraphMode") private var graphModeRaw: String = FrequencyResponseGraphView.Mode.overlay.rawValue
+
+    private var filteredProfiles: [AutoEQProfile] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return library.profiles }
+        return library.profiles.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
 
     private var graphMode: FrequencyResponseGraphView.Mode {
         FrequencyResponseGraphView.Mode(rawValue: graphModeRaw) ?? .overlay
@@ -80,26 +89,14 @@ struct ProfilesTab: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Profile Library")
-                    .font(.system(size: 15, weight: .semibold))
-                Text(activeLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Import…", systemImage: "square.and.arrow.down") { presentImportPanel() }
-                .help("Import ParametricEQ.txt files or whole folders")
-            Menu {
-                Button("Export Backup…") { presentExportPanel() }
-                Button("Restore Backup…") { presentRestorePanel() }
-            } label: {
-                Label("Backup", systemImage: "archivebox")
-            }
-            .fixedSize()
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Profile Library")
+                .font(.system(size: 15, weight: .semibold))
+            Text(activeLine)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
-        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var activeLine: String {
@@ -272,26 +269,131 @@ struct ProfilesTab: View {
 
     // MARK: - List
 
-    private var listSection: some View {
-        Group {
-            if library.profiles.isEmpty {
-                emptyState
-            } else {
-                List {
-                    ForEach(library.profiles) { profile in
-                        row(profile)
+    private var listHeader: some View {
+        HStack(spacing: 8) {
+            Text("Profiles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(DesignTokens.Colors.textPrimary)
+            Text("\(library.profiles.count)")
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(.tertiary)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                TextField("Filter", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
                     }
-                    .onMove { library.move(fromOffsets: $0, toOffset: $1) }
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear filter")
                 }
             }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
+            .frame(width: 150)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(DesignTokens.Colors.recessedBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+
+            Button("Import…", systemImage: "square.and.arrow.down") { presentImportPanel() }
+                .help("Import ParametricEQ.txt files or whole folders")
+            Menu {
+                Button("Export Backup…") { presentExportPanel() }
+                Button("Restore Backup…") { presentRestorePanel() }
+            } label: {
+                Label("Backup", systemImage: "archivebox")
+            }
+            .fixedSize()
+        }
+        .controlSize(.small)
+    }
+
+    private var listColumnHeader: some View {
+        HStack(spacing: 8) {
+            Color.clear.frame(width: 42, height: 1)
+            Text("Name")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Preamp")
+                .frame(width: 64, alignment: .trailing)
+            Text("Filters")
+                .frame(width: 44, alignment: .trailing)
+            Color.clear.frame(width: 20, height: 1)
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private var listSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            listHeader
+
+            Group {
+                if library.profiles.isEmpty {
+                    emptyState
+                } else {
+                    VStack(spacing: 0) {
+                        listColumnHeader
+                        Divider()
+                        if filteredProfiles.isEmpty {
+                            Text("No profiles match “\(query)”")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            List {
+                                ForEach(filteredProfiles) { profile in
+                                    row(profile)
+                                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                                        .listRowBackground(rowBackground(for: profile.id))
+                                        .listRowSeparator(.visible)
+                                }
+                                .onMove(perform: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? { library.move(fromOffsets: $0, toOffset: $1) } : nil)
+                            }
+                            .listStyle(.inset(alternatesRowBackgrounds: false))
+                            .scrollContentBackground(.hidden)
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(DesignTokens.Colors.eqCardBackground)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private func rowBackground(for id: String) -> Color {
+        if hoveredID == id {
+            return Color.primary.opacity(0.06)
+        } else if expandedIDs.contains(id) {
+            return Color.primary.opacity(0.035)
+        }
+        return Color.clear
     }
 
     private var emptyState: some View {
@@ -306,15 +408,33 @@ struct ProfilesTab: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .quaternaryLabelColor).opacity(0.15)))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(DesignTokens.Colors.eqCardBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        }
     }
 
     @ViewBuilder
     private func row(_ profile: AutoEQProfile) -> some View {
         let isFavorite = settings.isAutoEQFavorite(id: profile.id)
         let isActive = audioEngine.isActiveAutoEQEnabled && audioEngine.activeAutoEQProfile?.id == profile.id
-        VStack(alignment: .leading, spacing: 4) {
+        let isHovered = hoveredID == profile.id
+        let isExpanded = expandedIDs.contains(profile.id)
+        let ab = audioEngine.autoEQAB
+        let isFiltering = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 14, height: 14)
+                    .opacity(isHovered && !isFiltering ? 1 : 0)
+
                 Button {
                     if isFavorite {
                         settings.unfavoriteAutoEQProfile(id: profile.id)
@@ -323,7 +443,10 @@ struct ProfilesTab: View {
                     }
                 } label: {
                     Image(systemName: isFavorite ? "star.fill" : "star")
-                        .foregroundStyle(isFavorite ? Color.yellow : Color.secondary)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(isFavorite ? Color.yellow : Color.secondary.opacity(0.5))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(isFavorite ? "Remove from favorites" : "Add to favorites")
@@ -332,45 +455,94 @@ struct ProfilesTab: View {
                 if editingID == profile.id {
                     TextField("Name", text: $draftName)
                         .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
                         .onSubmit { commitRename(profile.id) }
                         .onExitCommand { editingID = nil }
                 } else {
                     Text(profile.name)
-                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                        .font(.system(size: 12.5, weight: isActive ? .semibold : .regular))
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(profile.name)
                         .onTapGesture(count: 2) { beginRename(profile) }
                 }
 
                 abBadge(for: profile.id)
+
                 if isActive {
-                    Text("Active")
-                        .font(.system(size: 10, weight: .semibold))
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+                    SettingsStatusPill(
+                        title: "Active",
+                        tint: Color(nsColor: .systemGreen),
+                        showsDot: true
+                    )
                 }
-                Spacer()
-                Text(AutoEQStatusMenu.summary(profile))
-                    .font(.system(size: 11).monospacedDigit())
+
+                Spacer(minLength: 4)
+
+                if isHovered && editingID != profile.id {
+                    HStack(spacing: 4) {
+                        if ab.profileA != profile.id {
+                            quickActionButton("Set A", prominent: false) {
+                                audioEngine.setAutoEQABProfile(profile.id, slot: .a)
+                            }
+                        }
+                        if ab.profileB != profile.id {
+                            quickActionButton("Set B", prominent: false) {
+                                audioEngine.setAutoEQABProfile(profile.id, slot: .b)
+                            }
+                        }
+                        if !isActive {
+                            quickActionButton("Apply", prominent: true) {
+                                audioEngine.selectAutoEQProfileForActiveDevice(profile.id)
+                            }
+                        }
+                    }
+                }
+
+                Text(String(format: "%.1f dB", profile.preampDB))
+                    .font(.system(size: 11.5).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(width: 64, alignment: .trailing)
+
+                Text("\(profile.filters.count)")
+                    .font(.system(size: 11.5).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+
                 Button {
-                    if expandedIDs.contains(profile.id) {
+                    if isExpanded {
                         expandedIDs.remove(profile.id)
                     } else {
                         expandedIDs.insert(profile.id)
                     }
                 } label: {
-                    Image(systemName: expandedIDs.contains(profile.id) ? "chevron.up" : "chevron.down")
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Show filters")
-                .accessibilityLabel(expandedIDs.contains(profile.id) ? "Hide filters for \(profile.name)" : "Show filters for \(profile.name)")
+                .accessibilityLabel(isExpanded ? "Hide filters for \(profile.name)" : "Show filters for \(profile.name)")
             }
-            if expandedIDs.contains(profile.id) {
+            .frame(minHeight: 32)
+            .padding(.horizontal, 12)
+
+            if isExpanded {
                 filterTable(profile)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 10)
             }
         }
-        .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                hoveredID = profile.id
+            } else if hoveredID == profile.id {
+                hoveredID = nil
+            }
+        }
         .contextMenu {
             Button("Apply to \(audioEngine.autoEQTargetDeviceName ?? "Output")") {
                 audioEngine.selectAutoEQProfileForActiveDevice(profile.id)
@@ -386,36 +558,105 @@ struct ProfilesTab: View {
         }
     }
 
+    private func quickActionButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(prominent ? Color.white : Color.primary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(prominent ? DesignTokens.Colors.accentPrimary : Color.primary.opacity(0.09))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func abBadge(for id: String) -> some View {
         let ab = audioEngine.autoEQAB
-        if id == ab.profileA || id == ab.profileB {
-            Text(id == ab.profileA ? "A" : "B")
-                .font(.system(size: 10, weight: .bold))
-                .frame(width: 16, height: 16)
-                .background(Circle().fill(Color.secondary.opacity(0.25)))
+        let isA = id == ab.profileA
+        let isB = id == ab.profileB
+        if isA || isB {
+            HStack(spacing: 4) {
+                Text(isA ? "A" : "B")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(Color.primary.opacity(0.12)))
+                CurveSwatch(
+                    color: isA ? DesignTokens.Colors.accentPrimary : Color(nsColor: .systemOrange),
+                    dashed: isB,
+                    width: 10,
+                    lineWidth: 2
+                )
+            }
         }
     }
 
     private func filterTable(_ profile: AutoEQProfile) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FrequencyResponseGraphView(
-                primaryCurve: FrequencyResponseCurve.evaluate(profile: profile, sampleRate: activeOutputSampleRate),
-                height: 88
-            )
-            .padding(.top, 2)
+        let curve = FrequencyResponseCurve.evaluate(profile: profile, sampleRate: activeOutputSampleRate)
+        let peak = curve.map { abs($0.magnitudeDB) }.max() ?? 0
+        let autoMaxDB: Double = peak <= 6 ? 7.5 : 18.0
+        let showAll = expandedAllFilterIDs.contains(profile.id)
+        let visibleFilters = showAll ? profile.filters : Array(profile.filters.prefix(5))
+        let remaining = profile.filters.count - visibleFilters.count
 
-            VStack(alignment: .leading, spacing: 1) {
+        return HStack(alignment: .top, spacing: 16) {
+            FrequencyResponseGraphView(
+                primaryCurve: curve,
+                maxDB: autoMaxDB,
+                height: 70,
+                showAxisLabels: false
+            )
+            .frame(width: 250)
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(String(format: "Preamp %.1f dB", profile.preampDB))
-                ForEach(Array(profile.filters.enumerated()), id: \.offset) { index, filter in
-                    Text(Self.describe(filter, index: index + 1))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+
+                Grid(alignment: .trailing, horizontalSpacing: 10, verticalSpacing: 2) {
+                    ForEach(Array(visibleFilters.enumerated()), id: \.offset) { index, filter in
+                        GridRow {
+                            Text("\(index + 1)")
+                            Text(Self.filterTypeCode(filter.type))
+                            Text(String(format: "%.1f Hz", filter.frequency))
+                            Text(String(format: "%+.1f dB", filter.gainDB))
+                            Text(String(format: "Q %.2f", filter.q))
+                        }
+                    }
+                }
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+                if remaining > 0 {
+                    Button {
+                        expandedAllFilterIDs.insert(profile.id)
+                    } label: {
+                        Text("+ \(remaining) more \(remaining == 1 ? "filter" : "filters")")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(DesignTokens.Colors.accentPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
                 }
             }
-            .font(.system(size: 11).monospaced())
-            .foregroundStyle(.secondary)
-            .textSelection(.enabled)
+
+            Spacer(minLength: 0)
         }
-        .padding(.leading, 28)
+        .padding(.leading, 52)
+        .padding(.top, 4)
+    }
+
+    private static func filterTypeCode(_ type: AutoEQFilter.FilterType) -> String {
+        switch type {
+        case .peaking: "PK"
+        case .lowShelf: "LSC"
+        case .highShelf: "HSC"
+        }
     }
 
     static func describe(_ filter: AutoEQFilter, index: Int) -> String {
@@ -432,17 +673,21 @@ struct ProfilesTab: View {
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             if let statusMessage {
                 Text(statusMessage)
                     .font(.system(size: 11))
                     .foregroundStyle(statusIsError ? Color.red : Color.secondary)
                     .textSelection(.enabled)
                     .lineLimit(4)
+                    .padding(.bottom, 2)
             }
-            Text("Drag to reorder · double-click to rename · right-click for more. Assignments are also remembered by device name, so moving a USB device to another port keeps its profile.")
+            Text("Drag to reorder · Double-click to rename · Right-click for more")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
+            Text("Assignments follow the device name, so moving a USB device to another port keeps its profile.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
     }
 

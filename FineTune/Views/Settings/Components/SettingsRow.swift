@@ -49,3 +49,28 @@ struct SettingsRowDivider: View {
             .padding(.leading, 16)
     }
 }
+
+/// Shared status pill used by Profiles ("Active", green with glow dot) and
+/// Audio › Quick Configs ("Last applied", accent).
+struct SettingsStatusPill: View {
+    let title: String
+    let tint: Color
+    var showsDot: Bool = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if showsDot {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: tint, radius: 2.5)
+            }
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(tint.opacity(0.14)))
+    }
+}
