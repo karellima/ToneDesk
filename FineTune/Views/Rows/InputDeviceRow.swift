@@ -90,7 +90,7 @@ struct InputDeviceRow: View {
 
             // Device name
             Text(device.name)
-                .font(DesignTokens.Typography.rowName)
+                .font(isDefault ? DesignTokens.Typography.rowNameBold : DesignTokens.Typography.rowName)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -141,6 +141,7 @@ struct InputDeviceRow: View {
                 range: 0...100,
                 isRowFocused: isFocused
             )
+            .opacity(showMutedIcon ? 0.5 : 1.0)
         }
         .frame(height: DesignTokens.Dimensions.rowContentHeight)
     }

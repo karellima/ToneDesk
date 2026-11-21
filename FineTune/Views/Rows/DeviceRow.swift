@@ -174,90 +174,46 @@ struct DeviceRow: View {
             // handles tap-to-set-default.
             DeviceBadge(icon: displayIcon, isSelected: isDefault)
 
-            // Device name + optional AutoEQ profile subtitle / active badges + AutoEQ picker
-            HStack(spacing: DesignTokens.Spacing.xs) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(device.name)
-                        .font(DesignTokens.Typography.rowName)
-                        .lineLimit(1)
-                        .help(device.name)
+            // Device name + optional AutoEQ profile subtitle / active badges
+            VStack(alignment: .leading, spacing: 1) {
+                Text(device.name)
+                    .font(isDefault ? DesignTokens.Typography.rowNameBold : DesignTokens.Typography.rowName)
+                    .lineLimit(1)
+                    .help(device.name)
 
-                    let subtitle = Self.autoEQSubtitle(profileName: autoEQProfileName, isEnabled: autoEQEnabled)
-                    let badges = (isParametricEQActive ? ["PEQ"] : []) + processing.activeBadges
-                    if subtitle != nil || !badges.isEmpty {
-                        if let subtitle, badges.count <= 1 {
-                            HStack(spacing: 4) {
-                                Text(subtitle)
-                                    .font(DesignTokens.Typography.cardSource)
-                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
+                let subtitle = Self.autoEQSubtitle(profileName: autoEQProfileName, isEnabled: autoEQEnabled)
+                let badges = (isParametricEQActive ? ["PEQ"] : []) + processing.activeBadges
+                if subtitle != nil || !badges.isEmpty {
+                    if let subtitle, badges.count <= 1 {
+                        HStack(spacing: 4) {
+                            Text(subtitle)
+                                .font(DesignTokens.Typography.caption)
+                                .foregroundStyle(DesignTokens.Colors.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .help(subtitle)
+                            ForEach(badges, id: \.self) { badge in
+                                badgePill(badge)
+                            }
+                        }
+                    } else {
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(DesignTokens.Typography.caption)
+                                .foregroundStyle(DesignTokens.Colors.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .help(subtitle)
+                        }
+                        if !badges.isEmpty {
+                            BadgeFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
                                 ForEach(badges, id: \.self) { badge in
                                     badgePill(badge)
                                 }
                             }
-                        } else {
-                            if let subtitle {
-                                Text(subtitle)
-                                    .font(DesignTokens.Typography.cardSource)
-                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            if !badges.isEmpty {
-                                BadgeFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
-                                    ForEach(badges, id: \.self) { badge in
-                                        badgePill(badge)
-                                    }
-                                }
-                                .padding(.top, subtitle != nil ? 1 : 0)
-                            }
+                            .padding(.top, subtitle != nil ? 1 : 0)
                         }
                     }
-                }
-
-                Spacer(minLength: 0)
-
-                // AutoEQ picker inside the name area so slider length stays consistent
-                if device.supportsAutoEQ,
-                   let profileManager = autoEQProfileManager,
-                   let onSelect = onAutoEQSelect,
-                   let onImport = onAutoEQImport {
-                    AutoEQPicker(
-                        profileManager: profileManager,
-                        profileName: autoEQProfileName,
-                        selection: autoEQSelection,
-                        favoriteIDs: autoEQFavoriteIDs,
-                        onSelect: onSelect,
-                        onImport: onImport,
-                        onToggleFavorite: { id in onAutoEQToggleFavorite?(id) },
-                        importError: autoEQImportError,
-                        isCorrectionEnabled: autoEQEnabled,
-                        onCorrectionToggle: onAutoEQToggle,
-                        preampEnabled: autoEQPreampEnabled,
-                        onPreampToggle: onAutoEQPreampToggle,
-                        libraryProfiles: autoEQLibraryProfiles
-                    )
-                }
-
-                if let onToggleInspector {
-                    Button {
-                        onToggleInspector()
-                    } label: {
-                        Image(systemName: isInspectorExpanded ? "info.circle.fill" : "info.circle")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(
-                                isInspectorExpanded
-                                    ? DesignTokens.Colors.interactiveActive
-                                    : (isInfoHovered ? DesignTokens.Colors.interactiveHover : DesignTokens.Colors.textTertiary)
-                            )
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { isInfoHovered = $0 }
-                    .help("Device Inspector (Balance, Mono, Limit, Sample Rate)")
-                    .accessibilityLabel("Inspect \(device.name)")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,13 +236,14 @@ struct DeviceRow: View {
                 }
             }
 
-            // Volume slider (Liquid Glass)
+            // Volume slider (Liquid Glass) — fixed width aligned with AppRowControls
             LiquidGlassSlider(
                 value: $sliderValue,
                 onEditingChanged: { editing in
                     isEditing = editing
                 }
             )
+            .frame(width: DesignTokens.Dimensions.sliderWidth)
             .opacity(showMutedIcon ? 0.5 : 1.0)
             .onChange(of: sliderValue) { _, newValue in
                 // Skip write-back when syncing from device (breaks USB DAC quantization spiral)
@@ -323,6 +280,60 @@ struct DeviceRow: View {
                 range: 0...100,
                 isRowFocused: isFocused
             )
+            .opacity(showMutedIcon ? 0.5 : 1.0)
+
+            // Reserved width matching AppRowControls' boost (16) + spacing (8) + device route (28) columns;
+            // hosts the inspector toggle button when available so mute/slider/% stay vertically aligned.
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                if let onToggleInspector {
+                    Button {
+                        onToggleInspector()
+                    } label: {
+                        Image(systemName: isInspectorExpanded ? "info.circle.fill" : "info.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(
+                                isInspectorExpanded
+                                    ? DesignTokens.Colors.interactiveActive
+                                    : (isInfoHovered ? DesignTokens.Colors.interactiveHover : DesignTokens.Colors.textTertiary)
+                            )
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isInfoHovered = $0 }
+                    .help("Device Inspector (Balance, Mono, Limit, Sample Rate)")
+                    .accessibilityLabel("Inspect \(device.name)")
+                }
+            }
+            .frame(width: DesignTokens.Dimensions.minTouchTarget + DesignTokens.Spacing.sm + 28)
+
+            // AutoEQ picker aligned with AppRowControls' trailing EQ button column
+            Group {
+                if device.supportsAutoEQ,
+                   let profileManager = autoEQProfileManager,
+                   let onSelect = onAutoEQSelect,
+                   let onImport = onAutoEQImport {
+                    AutoEQPicker(
+                        profileManager: profileManager,
+                        profileName: autoEQProfileName,
+                        selection: autoEQSelection,
+                        favoriteIDs: autoEQFavoriteIDs,
+                        onSelect: onSelect,
+                        onImport: onImport,
+                        onToggleFavorite: { id in onAutoEQToggleFavorite?(id) },
+                        importError: autoEQImportError,
+                        isCorrectionEnabled: autoEQEnabled,
+                        onCorrectionToggle: onAutoEQToggle,
+                        preampEnabled: autoEQPreampEnabled,
+                        onPreampToggle: onAutoEQPreampToggle,
+                        libraryProfiles: autoEQLibraryProfiles
+                    )
+                } else {
+                    Color.clear
+                        .frame(width: DesignTokens.Dimensions.minTouchTarget, height: DesignTokens.Dimensions.minTouchTarget)
+                }
+            }
         }
         .frame(minHeight: DesignTokens.Dimensions.rowContentHeight)
         .onChange(of: volume) { _, newValue in

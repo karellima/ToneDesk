@@ -13,8 +13,9 @@ struct HoverableRowModifier: ViewModifier {
             .padding(.vertical, 6)
             // Flat at rest; hover or keyboard focus reveals hoverSurface only.
             .background(
-                RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                RoundedRectangle(cornerRadius: DesignTokens.Dimensions.rowRadius)
                     .fill(isHovered || isFocused ? DesignTokens.Colors.hoverSurface : Color.clear)
+                    .padding(.vertical, 1)
                     .allowsHitTesting(false)
             )
             .onHover { hovering in

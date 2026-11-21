@@ -157,9 +157,10 @@ struct AppRow: View {
                         HStack(spacing: 4) {
                             if let routingSubtitle {
                                 Text(routingSubtitle)
-                                    .font(DesignTokens.Typography.cardSource)
-                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
+                                    .font(DesignTokens.Typography.caption)
+                                    .foregroundStyle(DesignTokens.Colors.textSecondary)
                                     .lineLimit(1)
+                                    .help(routingSubtitle)
                             }
                             if let balanceBadge {
                                 Text(balanceBadge)

@@ -63,7 +63,7 @@ private struct BaseMuteButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack {
+            ZStack(alignment: .leading) {
                 if let layoutReferenceIcon {
                     // Keeps the button width stable across wave-bucket changes.
                     Image(systemName: layoutReferenceIcon)

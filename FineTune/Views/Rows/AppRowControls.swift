@@ -108,6 +108,7 @@ struct AppRowControls: View {
                 range: 0...100,
                 isRowFocused: isRowFocused
             )
+            .opacity(showMutedIcon ? 0.5 : 1.0)
 
             // Boost chevrons
             BoostChevrons(level: boost, onTap: { onBoostChange(boost.next) })

@@ -115,7 +115,7 @@ struct MenuBarPopupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 deviceTabsHeader
                 Spacer()
                 if isEditingDevicePriority {
@@ -131,6 +131,7 @@ struct MenuBarPopupView: View {
                 editPriorityButton
                 settingsButton
             }
+            .padding(.horizontal, DesignTokens.Spacing.sm)
             .padding(.bottom, DesignTokens.Spacing.xs)
 
             if isSavingQuickConfig {
@@ -548,6 +549,7 @@ struct MenuBarPopupView: View {
                 .accessibilityLabel("Quit ToneDesk")
                 .help("Quit ToneDesk (⌘Q)")
             }
+            .padding(.horizontal, DesignTokens.Spacing.sm)
         }
     }
 
@@ -982,6 +984,7 @@ struct MenuBarPopupView: View {
                     .foregroundStyle(DesignTokens.Colors.textTertiary)
             }
         }
+        .padding(.horizontal, DesignTokens.Spacing.sm)
         .padding(.bottom, DesignTokens.Spacing.xs)
 
         if permission.status != .authorized {
