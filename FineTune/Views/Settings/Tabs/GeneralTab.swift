@@ -108,7 +108,7 @@ struct GeneralTab: View {
             SettingsRowDivider()
             SettingsRow(
                 "Popup Size",
-                description: "Smaller fits more on screen; larger leaves more breathing room."
+                description: "Smaller fits more on screen; larger leaves more breathing room"
             ) {
                 PopupSizeTilePicker(selection: $settings.appSettings.popupSize)
             }

@@ -38,6 +38,7 @@ struct VolumeSlider: View {
                 range: percentageRange
             )
             .frame(width: DesignTokens.Dimensions.settingsPercentageWidth, alignment: .trailing)
+            .padding(.trailing, -4)
         }
     }
 }

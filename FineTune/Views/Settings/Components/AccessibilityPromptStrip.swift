@@ -22,10 +22,9 @@ struct AccessibilityPromptStrip: View {
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.sm) {
             Image(systemName: showingGrantedFlourish ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(iconColor)
-                .frame(width: 28, alignment: .center)
                 .contentTransition(.symbolEffect(.replace))
 
             Text(message)
@@ -52,8 +51,8 @@ struct AccessibilityPromptStrip: View {
                 .accessibilityHint("Registers ToneDesk in the Accessibility list and opens System Settings.")
             }
         }
-        .padding(.horizontal, DesignTokens.Spacing.md)
-        .padding(.vertical, DesignTokens.Spacing.sm)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(
             reduceMotion ? .linear(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.85),
@@ -85,8 +84,8 @@ struct AccessibilityPromptStrip: View {
 
     private var message: String {
         showingGrantedFlourish
-            ? "Access granted — volume keys now control ToneDesk."
-            : "ToneDesk needs Accessibility to intercept F10 / F11 / F12."
+            ? "Access granted — volume keys now control ToneDesk"
+            : "ToneDesk needs Accessibility to intercept F10, F11, and F12"
     }
 
     private func triggerGrantedFlourish() {

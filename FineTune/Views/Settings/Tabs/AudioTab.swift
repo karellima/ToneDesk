@@ -245,12 +245,10 @@ struct AudioTab: View {
             }
 
             if isActive {
-                Text("Last applied")
-                    .font(DesignTokens.Typography.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+                SettingsStatusPill(
+                    title: "Last applied",
+                    tint: DesignTokens.Colors.accentPrimary
+                )
             }
 
             Spacer()
@@ -260,28 +258,39 @@ struct AudioTab: View {
                     audioEngine.applyQuickConfig(id: scene.id)
                 }
 
-                Button("Update") {
-                    pendingOverwriteScene = scene
-                }
-                .help("Overwrite this Quick Config with your current audio setup")
-                .accessibilityLabel("Update \(scene.name)")
+                Menu {
+                    Button {
+                        pendingOverwriteScene = scene
+                    } label: {
+                        Label("Update with Current Setup", systemImage: "arrow.triangle.2.circlepath")
+                    }
 
-                Button {
-                    renameSceneDraft = scene.name
-                    renamingSceneID = scene.id
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .help("Rename Quick Config")
-                .accessibilityLabel("Rename \(scene.name)")
+                    Button {
+                        renameSceneDraft = scene.name
+                        renamingSceneID = scene.id
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
 
-                Button(role: .destructive) {
-                    pendingDeleteScene = scene
+                    Divider()
+
+                    Button(role: .destructive) {
+                        pendingDeleteScene = scene
+                    } label: {
+                        Label("Delete…", systemImage: "trash")
+                    }
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .help("Delete Quick Config")
-                .accessibilityLabel("Delete \(scene.name)")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More actions for \(scene.name)")
+                .accessibilityLabel("More actions for \(scene.name)")
             }
             .controlSize(.small)
         }

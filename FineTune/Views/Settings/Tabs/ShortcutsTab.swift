@@ -33,9 +33,9 @@ struct ShortcutsTab: View {
         SettingsSection("Volume") {
             SettingsRow(
                 "Volume Step",
-                description: "How much each keypress changes the volume. Applies to media keys, configured hotkeys, and arrow-key nav in the popup."
+                description: "How much each keypress changes the volume. Applies to media keys, configured hotkeys, and arrow-key nav in the popup"
             ) {
-                Picker("", selection: $settings.appSettings.volumeHotkeyStep) {
+                Picker("Volume Step", selection: $settings.appSettings.volumeHotkeyStep) {
                     ForEach(VolumeHotkeyStep.allCases) { step in
                         Text(step.description).tag(step)
                     }
@@ -53,19 +53,25 @@ struct ShortcutsTab: View {
         SettingsSection("Media Keys") {
             SettingsRow(
                 "Media Keys Control",
-                description: "Use F11/F12 (or volume keys) to control ToneDesk"
+                description: "Use F10, F11, and F12 (or volume keys) to control ToneDesk"
             ) {
-                Toggle("", isOn: $settings.appSettings.mediaKeyControlEnabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .labelsHidden()
+                HStack(spacing: 8) {
+                    if !accessibility.isTrustedCached {
+                        Text("Needs Accessibility permission")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Toggle("Media Keys Control", isOn: $settings.appSettings.mediaKeyControlEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .opacity(accessibility.isTrustedCached ? 1.0 : 0.5)
+                }
             }
 
             if !accessibility.isTrustedCached {
                 SettingsRowDivider()
                 AccessibilityPromptStrip(accessibility: accessibility)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
             }
 
             if mediaKeyStatus.isOffline {

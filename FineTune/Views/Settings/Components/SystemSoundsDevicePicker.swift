@@ -23,6 +23,8 @@ struct SystemSoundsDevicePicker: View {
             isFollowingDefault: isFollowingDefault,
             defaultDeviceUID: defaultDeviceUID,
             triggerWidth: 160,
+            popoverWidth: 260,
+            alignPopoverTrailing: true,
             onDeviceSelected: { onDeviceSelected($0) },
             onSelectFollowDefault: { onSelectFollowDefault() }
         )

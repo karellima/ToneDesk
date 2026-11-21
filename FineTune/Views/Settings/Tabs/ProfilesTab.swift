@@ -22,6 +22,7 @@ struct ProfilesTab: View {
     @State private var statusIsError = false
     @State private var isDropTargeted = false
     @AppStorage("abGraphMode") private var graphModeRaw: String = FrequencyResponseGraphView.Mode.overlay.rawValue
+    @AppStorage("abSectionExpanded") private var isABExpanded = true
 
     private var filteredProfiles: [AutoEQProfile] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,93 +110,139 @@ struct ProfilesTab: View {
 
     // MARK: - A/B
 
+    @ViewBuilder
     private var abSection: some View {
-        let ab = audioEngine.autoEQAB
-        let activeSlot = audioEngine.activeAutoEQABSlot
-        let trims = ab.levelMatch ? audioEngine.autoEQABTrims : nil
-        let profA = ab.profileA.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
-        let profB = ab.profileB.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
+        if library.profiles.isEmpty {
+            EmptyView()
+        } else if library.profiles.count == 1 {
+            SettingsSection("A/B Comparison") {
+                Text("Import at least 2 profiles to compare")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
+        } else {
+            let ab = audioEngine.autoEQAB
+            let activeSlot = audioEngine.activeAutoEQABSlot
+            let trims = ab.levelMatch ? audioEngine.autoEQABTrims : nil
+            let profA = ab.profileA.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
+            let profB = ab.profileB.flatMap { audioEngine.autoEQProfileManager.profile(for: $0) }
 
-        return SettingsSection("A/B Comparison") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    ABSlotCard(
-                        slot: .a,
-                        profile: profA,
-                        profiles: library.profiles,
-                        isPlaying: activeSlot == .a,
-                        isConfigured: ab.isConfigured,
-                        levelTrimDB: trims?.a,
-                        onActivate: { activateABSlot(.a, ab: ab) },
-                        onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .a) }
-                    )
-                    ABSlotCard(
-                        slot: .b,
-                        profile: profB,
-                        profiles: library.profiles,
-                        isPlaying: activeSlot == .b,
-                        isConfigured: ab.isConfigured,
-                        levelTrimDB: trims?.b,
-                        onActivate: { activateABSlot(.b, ab: ab) },
-                        onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .b) }
-                    )
-                }
-
-                HStack(spacing: 10) {
-                    Picker("Graph Mode", selection: graphModeBinding) {
-                        Text("Overlay").tag(FrequencyResponseGraphView.Mode.overlay)
-                        Text("Difference").tag(FrequencyResponseGraphView.Mode.difference)
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isABExpanded.toggle()
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-
-                    Text("Click a side to listen. Your A/B shortcut also switches.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Toggle("Level-match", isOn: Binding(
-                        get: { ab.levelMatch },
-                        set: { audioEngine.setAutoEQABLevelMatch($0) }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .help("Attenuates the louder profile (approximate LUFS, K-weighted pink noise) so you compare sound, not volume")
-                }
-                .controlSize(.small)
-
-                if ab.isConfigured, let profA, let profB {
-                    let curveA = FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate)
-                    let curveB = FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate)
-                    let peak = max(
-                        curveA.map { abs($0.magnitudeDB) }.max() ?? 0,
-                        curveB.map { abs($0.magnitudeDB) }.max() ?? 0
-                    )
-                    let maxDB: Double = peak <= 6 ? 7.5 : 18.0
-                    let highlight: FrequencyResponseGraphView.Highlight? = switch activeSlot {
-                    case .a: .primary
-                    case .b: .secondary
-                    case nil: nil
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isABExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12)
+                        Text("A/B Comparison")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(DesignTokens.Colors.textPrimary)
+                        if !isABExpanded, let activeSlot {
+                            SettingsStatusPill(
+                                title: activeSlot == .a ? "Playing A" : "Playing B",
+                                tint: Color(nsColor: .systemGreen),
+                                showsDot: true
+                            )
+                        }
+                        Spacer()
                     }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("A/B Comparison")
+                .accessibilityValue(isABExpanded ? "Expanded" : "Collapsed")
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        abGraphLegend(activeSlot: activeSlot)
-                        FrequencyResponseGraphView(
-                            primaryCurve: curveA,
-                            secondaryCurve: curveB,
-                            maxDB: maxDB,
-                            height: 110,
-                            highlight: highlight,
-                            mode: graphMode,
-                            showsLegend: false
-                        )
+                if isABExpanded {
+                    SettingsSection {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 10) {
+                                ABSlotCard(
+                                    slot: .a,
+                                    profile: profA,
+                                    profiles: library.profiles,
+                                    isPlaying: activeSlot == .a,
+                                    isConfigured: ab.isConfigured,
+                                    levelTrimDB: trims?.a,
+                                    onActivate: { activateABSlot(.a, ab: ab) },
+                                    onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .a) }
+                                )
+                                ABSlotCard(
+                                    slot: .b,
+                                    profile: profB,
+                                    profiles: library.profiles,
+                                    isPlaying: activeSlot == .b,
+                                    isConfigured: ab.isConfigured,
+                                    levelTrimDB: trims?.b,
+                                    onActivate: { activateABSlot(.b, ab: ab) },
+                                    onSelectProfile: { audioEngine.setAutoEQABProfile($0, slot: .b) }
+                                )
+                            }
+
+                            HStack(spacing: 10) {
+                                Picker("Graph Mode", selection: graphModeBinding) {
+                                    Text("Overlay").tag(FrequencyResponseGraphView.Mode.overlay)
+                                    Text("Difference").tag(FrequencyResponseGraphView.Mode.difference)
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .fixedSize()
+
+                                Text("Click a side to listen. Your A/B shortcut also switches.")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 8)
+
+                                Toggle("Level-match", isOn: Binding(
+                                    get: { ab.levelMatch },
+                                    set: { audioEngine.setAutoEQABLevelMatch($0) }
+                                ))
+                                .toggleStyle(.checkbox)
+                                .help("Attenuates the louder profile (approximate LUFS, K-weighted pink noise) so you compare sound, not volume")
+                            }
+                            .controlSize(.small)
+
+                            if ab.isConfigured, let profA, let profB {
+                                let curveA = FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate)
+                                let curveB = FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate)
+                                let peak = max(
+                                    curveA.map { abs($0.magnitudeDB) }.max() ?? 0,
+                                    curveB.map { abs($0.magnitudeDB) }.max() ?? 0
+                                )
+                                let maxDB: Double = peak <= 6 ? 7.5 : 18.0
+                                let highlight: FrequencyResponseGraphView.Highlight? = switch activeSlot {
+                                case .a: .primary
+                                case .b: .secondary
+                                case nil: nil
+                                }
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    abGraphLegend(activeSlot: activeSlot)
+                                    FrequencyResponseGraphView(
+                                        primaryCurve: curveA,
+                                        secondaryCurve: curveB,
+                                        maxDB: maxDB,
+                                        height: 110,
+                                        highlight: highlight,
+                                        mode: graphMode,
+                                        showsLegend: false
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
     }
 

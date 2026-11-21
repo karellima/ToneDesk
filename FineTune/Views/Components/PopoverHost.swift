@@ -18,6 +18,7 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
     /// AppKit appearance applied to the panel itself. `nil` inherits from the
     /// application's effective appearance (System mode).
     let nsAppearance: NSAppearance?
+    var alignTrailing: Bool = false
     @ViewBuilder let content: () -> Content
 
     func makeNSView(context: Context) -> NSView {
@@ -36,7 +37,8 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
                     from: nsView,
                     content: content,
                     preferredColorScheme: preferredColorScheme,
-                    nsAppearance: nsAppearance
+                    nsAppearance: nsAppearance,
+                    alignTrailing: alignTrailing
                 )
             } else {
                 // Update content when state changes while panel is open
@@ -73,7 +75,8 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
             from parentView: NSView,
             content: () -> V,
             preferredColorScheme: ColorScheme?,
-            nsAppearance: NSAppearance?
+            nsAppearance: NSAppearance?,
+            alignTrailing: Bool = false
         ) {
             guard let parentWindow = parentView.window else { return }
             self.parentWindow = parentWindow
@@ -107,8 +110,19 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
             // Position below trigger
             let parentFrame = parentView.convert(parentView.bounds, to: nil)
             let screenFrame = parentWindow.convertToScreen(parentFrame)
+            let rawX = alignTrailing
+                ? screenFrame.maxX - panel.frame.width
+                : screenFrame.origin.x
+            let clampedX: CGFloat
+            if alignTrailing {
+                let minX = parentWindow.frame.minX + 8
+                let maxX = parentWindow.frame.maxX - panel.frame.width - 8
+                clampedX = max(minX, min(rawX, maxX))
+            } else {
+                clampedX = rawX
+            }
             let panelOrigin = NSPoint(
-                x: screenFrame.origin.x,
+                x: clampedX,
                 y: screenFrame.origin.y - panel.frame.height - 4
             )
             panel.setFrameOrigin(panelOrigin)

@@ -165,6 +165,8 @@ private struct PopupSizeTile: View {
 private struct PopupSizeMockup: View {
     let size: MenuBarPopupSize
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var popupWidth: CGFloat {
         switch size {
         case .compact:     return 52
@@ -197,15 +199,27 @@ private struct PopupSizeMockup: View {
         }
     }
 
+    private var backdropFill: Color {
+        colorScheme == .dark ? Color(white: 0.11) : Color(white: 0.93)
+    }
+
+    private var cardFill: Color {
+        colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.98)
+    }
+
+    private var cardBorder: Color {
+        colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.12)
+    }
+
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            backdropFill
 
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(cardFill)
                 .overlay {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5)
+                        .strokeBorder(cardBorder, lineWidth: 0.5)
                 }
                 .frame(width: popupWidth)
                 .overlay {
@@ -223,31 +237,38 @@ private struct PopupSizeMockup: View {
 }
 
 private struct MockDeviceRow: View {
-    private static let element = Color.secondary.opacity(0.55)
-    private static let badge = Color.accentColor.opacity(0.6)
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var element: Color {
+        colorScheme == .dark ? Color(white: 0.44) : Color(white: 0.65)
+    }
+
+    private var badge: Color {
+        colorScheme == .dark ? Color.accentColor.opacity(0.85) : Color.accentColor.opacity(0.7)
+    }
 
     var body: some View {
         HStack(spacing: 2) {
             Circle()
-                .fill(Self.badge)
+                .fill(badge)
                 .frame(width: 3, height: 3)
 
             Capsule()
-                .fill(Self.element)
+                .fill(element)
                 .frame(width: 8, height: 2)
 
             Spacer(minLength: 1)
 
             Circle()
-                .fill(Self.element)
+                .fill(element)
                 .frame(width: 2.5, height: 2.5)
 
             Capsule()
-                .fill(Self.element)
+                .fill(element)
                 .frame(width: 14, height: 2)
 
             Capsule()
-                .fill(Self.element)
+                .fill(element)
                 .frame(width: 4, height: 2)
         }
     }

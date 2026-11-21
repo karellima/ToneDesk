@@ -36,7 +36,8 @@ struct DevicePicker: View {
     // Configuration
     let triggerWidth: CGFloat
     var triggerStyle: TriggerStyle = .full
-    private let popoverWidth: CGFloat = 210
+    var popoverWidth: CGFloat = 210
+    var alignPopoverTrailing: Bool = false
     private let itemHeight: CGFloat = 26
     private let itemSpacing: CGFloat = 2
     private let cornerRadius: CGFloat = 8
@@ -183,7 +184,8 @@ struct DevicePicker: View {
                 PopoverHost(
                     isPresented: $isExpanded,
                     preferredColorScheme: appearancePreference.swiftUIColorScheme,
-                    nsAppearance: appearancePreference.nsAppearance
+                    nsAppearance: appearancePreference.nsAppearance,
+                    alignTrailing: alignPopoverTrailing
                 ) {
                     dropdownContent
                 }
@@ -451,14 +453,26 @@ private struct DevicePickerRow: View {
             .frame(height: 26)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(isHovered && !isDisabled ? Color.accentColor.opacity(0.15) : Color.clear)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(rowBackgroundColor)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .disabled(isDisabled)
         .whenHovered { isHovered = $0 }
+    }
+
+    private var rowBackgroundColor: Color {
+        if isDisabled {
+            return Color.clear
+        } else if isHovered {
+            return DesignTokens.Colors.hoverSurface
+        } else if isSelected {
+            return Color.accentColor.opacity(0.15)
+        }
+        return Color.clear
     }
 
     @ViewBuilder
@@ -519,12 +533,13 @@ private struct DevicePickerRow: View {
                 } else {
                     Text("Follows macOS default")
                         .font(DesignTokens.Typography.caption)
-                        .foregroundStyle(DesignTokens.Colors.textTertiary)
+                        .foregroundStyle(DesignTokens.Colors.textSecondary)
                 }
             }
         case .device(let device):
             Text(device.name)
                 .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -565,6 +580,8 @@ extension DevicePicker {
         isFollowingDefault: Bool,
         defaultDeviceUID: String?,
         triggerWidth: CGFloat = 105,
+        popoverWidth: CGFloat = 210,
+        alignPopoverTrailing: Bool = false,
         onDeviceSelected: @escaping (String) -> Void,
         onSelectFollowDefault: @escaping () -> Void
     ) {
@@ -575,6 +592,8 @@ extension DevicePicker {
         self.isFollowingDefault = isFollowingDefault
         self.defaultDeviceUID = defaultDeviceUID
         self.triggerWidth = triggerWidth
+        self.popoverWidth = popoverWidth
+        self.alignPopoverTrailing = alignPopoverTrailing
         self.mode = .single
         self.onModeChange = { _ in }
         self.onDeviceSelected = onDeviceSelected

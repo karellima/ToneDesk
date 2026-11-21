@@ -5,14 +5,18 @@ import SwiftUI
 struct UpdatesTab: View {
     @ObservedObject var updateManager: UpdateManager
 
-    private var lastCheckDescription: String {
+    private var versionTitle: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        return "Version \(version)"
+    }
+
+    private var lastCheckDescription: String {
         if let date = updateManager.lastUpdateCheckDate {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .abbreviated
-            return "Version \(version) · \(formatter.localizedString(for: date, relativeTo: .now))"
+            return "Last checked \(formatter.localizedString(for: date, relativeTo: .now))"
         }
-        return "Version \(version) · Never checked"
+        return "Never checked"
     }
 
     private var automaticallyChecksBinding: Binding<Bool> {
@@ -27,17 +31,17 @@ struct UpdatesTab: View {
             VStack(alignment: .leading, spacing: 24) {
                 SettingsSection("Software Updates") {
                     SettingsRow(
-                        "Automatic updates",
+                        "Automatic Updates",
                         description: "Check for new versions automatically"
                     ) {
-                        Toggle("", isOn: automaticallyChecksBinding)
+                        Toggle("Automatic Updates", isOn: automaticallyChecksBinding)
                             .toggleStyle(.switch)
                             .controlSize(.small)
                             .labelsHidden()
                     }
                     SettingsRowDivider()
                     SettingsRow(
-                        "Last checked",
+                        versionTitle,
                         description: lastCheckDescription
                     ) {
                         Button("Check Now") {
