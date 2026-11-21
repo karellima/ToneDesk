@@ -22,6 +22,18 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
     private var lastObservedDeviceID: AudioDeviceID?
     private var started = false
 
+    /// Live peak audio level (0...1) for the optional menu-bar VU meter.
+    var audioLevelProvider: (() -> Float)?
+    /// Called when the user scrolls the mouse wheel directly over the menu bar icon.
+    var onQuickVolumeDelta: ((Double) -> Void)?
+    /// Called when the user Option-clicks or middle-clicks the menu bar icon.
+    var onQuickMuteToggle: (() -> Void)?
+
+    private var meterTimer: Timer?
+    private var lastMeterBucket: Int = -1
+    private var localStatusItemEventMonitor: Any?
+    private var globalStatusItemEventMonitor: Any?
+
     init(
         deviceVolumeMonitor: DeviceVolumeMonitor,
         deviceProvider: any AudioDeviceProviding,
@@ -32,21 +44,48 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
         self.settings = settings
     }
 
+    /// Registers the local status-item event monitor eagerly so it precedes
+    /// `FluidMenuBarExtraStatusItem`'s own local monitor in AppKit's FIFO dispatch
+    /// queue. That ensures Option-click is intercepted and consumed before
+    /// `FluidMenuBarExtra` can open the popup. Safe to call before `start()`.
+    func installEarlyLocalMonitor() {
+        guard localStatusItemEventMonitor == nil else { return }
+        localStatusItemEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .leftMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            guard let self else { return event }
+            return self.handleLocalStatusItemEvent(event)
+        }
+    }
+
     /// Begin observing volume / mute / style and apply state to the menu bar button.
     /// Idempotent; safe to call from the app-init path even before the status item exists.
     func start() {
         guard !started else { return }
         started = true
         lastObservedDeviceID = deviceVolumeMonitor.defaultDeviceID
+        installEarlyLocalMonitor()
         attemptInitialApply(retriesLeft: 20)
         scheduleApplyTracking()
         scheduleDeviceChangeTracking()
+        syncQuickControlMonitor()
+        syncMeterTimer()
     }
 
     /// Cancel pending work and drop references. Called on app termination.
     func stop() {
         flashWorkItem?.cancel()
         flashWorkItem = nil
+        meterTimer?.invalidate()
+        meterTimer = nil
+        if let monitor = localStatusItemEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localStatusItemEventMonitor = nil
+        }
+        if let monitor = globalStatusItemEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalStatusItemEventMonitor = nil
+        }
         cachedButton = nil
     }
 
@@ -105,12 +144,214 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
 
     // MARK: - Apply
 
-    private func apply() {
+    private func apply(animated: Bool = true) {
         guard let button = resolveButton() else { return }
         let state = computeState()
-        guard let image = state.image.nsImage() else { return }
-        addFadeTransition(to: button)
+        let showMeter = settings.appSettings.showMenuBarMeter
+        let id = deviceVolumeMonitor.defaultDeviceID
+        let muted = deviceVolumeMonitor.muteStates[id] ?? false
+        let volume = deviceVolumeMonitor.volumes[id] ?? 0
+        let level = showMeter ? (audioLevelProvider?() ?? 0) : 0
+
+        let image: NSImage?
+        if showMeter {
+            image = state.image.nsImageWithMeter(level: level, muted: muted)
+        } else {
+            image = state.image.nsImage()
+        }
+        guard let image else { return }
+        if animated {
+            addFadeTransition(to: button)
+        }
         button.image = image
+
+        if settings.appSettings.showMenuBarVolumeLabel {
+            let tier = deviceVolumeMonitor.outputVolumeBackend(for: id)
+            let slider = DeviceRow.volumeToSlider(volume, backend: tier)
+            let pct = Int(round(slider * 100))
+            let text = (muted || pct == 0) ? " Muted" : " \(pct)%"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.labelColor
+            ]
+            button.imagePosition = .imageLeading
+            button.attributedTitle = NSAttributedString(string: text, attributes: attrs)
+        } else {
+            button.imagePosition = .imageOnly
+            if !button.title.isEmpty {
+                button.title = ""
+            }
+        }
+    }
+
+    /// Computes a safe, trackpad-friendly volume slider delta for a single scroll event over the
+    /// menu bar icon. Drops kinetic momentum tails, respects natural scroll direction, scales
+    /// precise trackpad pixel deltas gently (vs discrete mouse-wheel detents), and caps any
+    /// single event to ±6% to protect hearing.
+    nonisolated static func scrollVolumeDelta(
+        deltaY: CGFloat,
+        hasPreciseDeltas: Bool,
+        isDirectionInverted: Bool,
+        isMomentumTail: Bool,
+        discreteStep: Double
+    ) -> Double {
+        let sensitivity: Double = 0.0025
+        let lineUnits: Double = max(1.0, (discreteStep * 0.5) / sensitivity)
+        var probe: Double = 0.5
+        ScrollWheelStep.apply(
+            deltaY: deltaY,
+            hasPreciseDeltas: hasPreciseDeltas,
+            isDirectionInverted: isDirectionInverted,
+            isMomentumTail: isMomentumTail,
+            value: &probe,
+            sensitivity: sensitivity,
+            lineUnits: lineUnits,
+            in: 0.0...1.0
+        )
+        let rawDelta = probe - 0.5
+        return max(-0.06, min(0.06, rawDelta))
+    }
+
+    private func syncMeterTimer() {
+        if settings.appSettings.showMenuBarMeter {
+            guard meterTimer == nil else { return }
+            lastMeterBucket = -1
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.tickMeter()
+                }
+            }
+        } else {
+            meterTimer?.invalidate()
+            meterTimer = nil
+            lastMeterBucket = -1
+        }
+    }
+
+    private func tickMeter() {
+        guard settings.appSettings.showMenuBarMeter else { return }
+        let id = deviceVolumeMonitor.defaultDeviceID
+        let muted = deviceVolumeMonitor.muteStates[id] ?? false
+        let level = muted ? 0 : (audioLevelProvider?() ?? 0)
+        // Quantize to 12 buckets (0...11) so silent idle state never redraws.
+        let bucket = level > 0.02 ? min(11, max(1, Int(round(level * 11)))) : 0
+        guard bucket != lastMeterBucket else { return }
+        lastMeterBucket = bucket
+        apply(animated: false)
+    }
+
+    /// Installs or removes the global event monitor for scroll-wheel volume + middle-click mute
+    /// over the menu bar icon when another app is active. The local monitor stays registered in
+    /// front of `FluidMenuBarExtraStatusItem`'s monitor and checks `menuBarQuickControlsEnabled`
+    /// dynamically so toggling the preference never loses FIFO priority for Option-click.
+    private func syncQuickControlMonitor() {
+        if settings.appSettings.menuBarQuickControlsEnabled {
+            installEarlyLocalMonitor()
+            guard globalStatusItemEventMonitor == nil else { return }
+            globalStatusItemEventMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.scrollWheel, .otherMouseDown]
+            ) { [weak self] event in
+                MainActor.assumeIsolated {
+                    self?.handleGlobalStatusItemEvent(event)
+                }
+            }
+        } else if let monitor = globalStatusItemEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalStatusItemEventMonitor = nil
+        }
+    }
+
+    private func handleLocalStatusItemEvent(_ event: NSEvent) -> NSEvent? {
+        guard settings.appSettings.menuBarQuickControlsEnabled,
+              let button = resolveButton(),
+              let buttonWindow = button.window,
+              buttonWindow.isVisible else {
+            return event
+        }
+
+        let isOverStatusItem = Self.isPointerOverStatusItem(
+            mouseLocation: NSEvent.mouseLocation,
+            buttonWindowFrame: buttonWindow.frame,
+            eventWindowMatchesButton: event.window === buttonWindow
+        )
+        guard isOverStatusItem else { return event }
+
+        if event.type == .scrollWheel {
+            applyScrollEvent(event)
+            return nil
+        }
+
+        if Self.shouldToggleMute(
+            eventType: event.type,
+            buttonNumber: event.buttonNumber,
+            modifierFlags: event.modifierFlags
+        ) {
+            onQuickMuteToggle?()
+            return nil
+        }
+
+        return event
+    }
+
+    private func handleGlobalStatusItemEvent(_ event: NSEvent) {
+        guard settings.appSettings.menuBarQuickControlsEnabled,
+              let button = resolveButton(),
+              let buttonWindow = button.window,
+              buttonWindow.isVisible else {
+            return
+        }
+
+        guard Self.isPointerOverStatusItem(
+            mouseLocation: NSEvent.mouseLocation,
+            buttonWindowFrame: buttonWindow.frame,
+            eventWindowMatchesButton: false
+        ) else {
+            return
+        }
+
+        if event.type == .scrollWheel {
+            applyScrollEvent(event)
+        } else if Self.shouldToggleMute(
+            eventType: event.type,
+            buttonNumber: event.buttonNumber,
+            modifierFlags: event.modifierFlags
+        ) {
+            onQuickMuteToggle?()
+        }
+    }
+
+    private func applyScrollEvent(_ event: NSEvent) {
+        let delta = Self.scrollVolumeDelta(
+            deltaY: event.scrollingDeltaY,
+            hasPreciseDeltas: event.hasPreciseScrollingDeltas,
+            isDirectionInverted: event.isDirectionInvertedFromDevice,
+            isMomentumTail: event.momentumPhase != [],
+            discreteStep: settings.appSettings.volumeHotkeyStep.sliderDelta
+        )
+        guard abs(delta) > 0.0001 else { return }
+        onQuickVolumeDelta?(delta)
+    }
+
+    nonisolated static func isPointerOverStatusItem(
+        mouseLocation: NSPoint,
+        buttonWindowFrame: NSRect,
+        eventWindowMatchesButton: Bool
+    ) -> Bool {
+        eventWindowMatchesButton || buttonWindowFrame.contains(mouseLocation)
+    }
+
+    nonisolated static func shouldToggleMute(
+        eventType: NSEvent.EventType,
+        buttonNumber: Int,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        if eventType == .otherMouseDown {
+            return buttonNumber == 2
+        }
+        if eventType == .leftMouseDown {
+            return modifierFlags.contains(.option) && !modifierFlags.contains(.command)
+        }
+        return false
     }
 
     private func attemptInitialApply(retriesLeft: Int) {
@@ -133,6 +374,9 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
             _ = deviceVolumeMonitor.volumes[id]
             _ = deviceVolumeMonitor.muteStates[id]
             _ = settings.appSettings.menuBarIconStyle
+            _ = settings.appSettings.showMenuBarMeter
+            _ = settings.appSettings.showMenuBarVolumeLabel
+            _ = settings.appSettings.menuBarQuickControlsEnabled
             _ = settings.appSettings.hudStyle
             _ = settings.devicePriorityOrder
             // Deliberate dependency so the device-style icon refreshes when the user picks a new symbol; explicit because observation granularity is per stored property.
@@ -147,6 +391,8 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
                 self?.scheduleApplyTracking()
             }
             Task { @MainActor [weak self] in
+                self?.syncMeterTimer()
+                self?.syncQuickControlMonitor()
                 self?.apply()
             }
         }
@@ -179,7 +425,7 @@ final class MenuBarIconCoordinator: MediaKeyIconFlashing {
         if let cached = cachedButton { return cached }
         for window in NSApp.windows {
             guard let contentView = window.contentView else { continue }
-            if let button = findStatusBarButton(in: contentView, matching: "FineTune") {
+            if let button = findStatusBarButton(in: contentView, matching: "ToneDesk") {
                 button.wantsLayer = true
                 cachedButton = button
                 return button

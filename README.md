@@ -1,153 +1,85 @@
-<img src="assets/icon.png" width="170" height="170" alt="FineTune app icon" align="left"/>
+<img src="assets/icon.png" width="140" height="140" alt="ToneDesk app icon" align="left"/>
 
-<h3>FineTune</h3>
+# ToneDesk
 
-Control the volume of every app independently, boost quiet ones up to 4x, route audio to different speakers, and shape your sound with EQ and headphone correction. Lives in your menu bar. Free and open-source.
+Controle de áudio completo para macOS na barra de menus — volume independente por aplicativo, roteamento multi-dispositivo, correção de sala/fones (AutoEQ / REW de até 64 filtros), equalizador paramétrico global com gráfico interativo, cenas rápidas (*Quick Configs*), controles estéreo avançados e medidor ao vivo na barra de menus.
 
-<a href="https://github.com/ronitsingh10/FineTune/releases/latest/download/FineTune.dmg"><img src="assets/download-badge.svg" alt="Download for macOS" height="48"/></a>
+Mantido por **Karel Cristian** (`com.karel.ToneDesk`) — derivado de [FineTune](https://github.com/ronitsingh10/FineTune) sob licença **GPL-3.0**.
 
 <br clear="all"/>
 
-<p align="center">
-  <a href="https://github.com/ronitsingh10/FineTune/releases/latest"><img src="https://img.shields.io/github/v/release/ronitsingh10/FineTune?style=for-the-badge&labelColor=1c1c1e&color=0A84FF&logo=github&logoColor=white" alt="Latest Release"></a>
-  <a href="https://github.com/ronitsingh10/FineTune/releases"><img src="https://img.shields.io/github/downloads/ronitsingh10/FineTune/total?style=for-the-badge&labelColor=1c1c1e&color=3a3a3c" alt="Downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-3a3a3c?style=for-the-badge&labelColor=1c1c1e" alt="License: GPL v3"></a>
-  <a href="https://ko-fi.com/ronitsingh10"><img src="https://img.shields.io/badge/Tip_on_Ko--fi-FF5E5B?style=for-the-badge&labelColor=1c1c1e&logo=ko-fi&logoColor=white" alt="Tip on
-  Ko-fi"></a>
-  <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-15%2B-3a3a3c?style=for-the-badge&labelColor=1c1c1e&logo=apple&logoColor=white" alt="macOS 15+"></a>
-</p>
+---
 
-<p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
-</p>
+## O que foi construído e evoluído no ToneDesk
 
-<p align="center">
-  <img src="assets/screenshot-main.png" alt="FineTune popup showing per-app volume control, multi-device output routing with picker popover, AutoEQ headphone correction, and device-level volume sliders" width="700">
-</p>
-<p align="center">
-  <img src="assets/screenshot-eq.png" alt="FineTune showing the Brave Browser app row expanded with the EQ panel open and a Vocal Clarity preset selected" width="700">
-</p>
+Este projeto evoluiu a base original do FineTune para uma estação pessoal definitiva de controle e calibração de áudio no macOS 15+:
 
-## Install
+### 1. Identidade, Ícones e Autonomia
+- **Renomeação completa para ToneDesk** (`com.karel.ToneDesk`, esquema de URL `tonedesk://`, armazenamento isolado em `~/Library/Application Support/ToneDesk/`).
+- **Novo ícone do app (`AppIcon.appiconset`)** com todos os 10 slots nativos do macOS (16×16 até 1024×1024 px) e remoção do bundle antigo `fineTuneIcon.icon`.
+- **Novo glifo da barra de menus (`MenuBarIcon.imageset`)** em 18/36/54 px configurado como *Template Image* para adaptação automática a barras claras e escuras.
+- **Remoção de atualizações externas (Sparkle) e links de terceiros:** aba *Updates* removida de Settings, `UpdateManager` desativado na inicialização e links externos de doação/repositório upstream removidos. Autoria atualizada para **Karel Cristian** (`About` e `NSHumanReadableCopyright`).
 
-**Homebrew** (recommended)
+### 2. Equalização Paramétrica Global, AutoEQ (64 filtros) & Comparação A/B
+- **Global Parametric EQ por dispositivo (`DeviceParametricEQEditorView`):**
+  - Gráfico interativo de resposta de frequência (**20 Hz – 20 kHz**) em Dark e Light Mode com grade, eixos, preenchimento e legenda **Combined + AutoEQ** quando ambos estão ativos.
+  - Alças arrastáveis diretamente no gráfico com *z-order* dinâmico (banda selecionada sempre acima), pills para adicionar/alternar/habilitar/remover bandas, seletor **Peak / Low Shelf / High Shelf** e sliders monoespaçados **Preamp, Freq, Gain e Q** com auto-scroll para visibilidade imediata em *Compact*.
+  - Mini-gráfico clicável no inspector recolhido e exportação direta da curva para a biblioteca de perfis.
+- **Suporte a até 64 filtros por perfil REW / Equalizer APO:**
+  - Aplicação fiel dos coeficientes RBJ em 44.1, 48 e 96 kHz sem *pre-warping* indevido em arquivos importados.
+  - Troca de perfil/preamp livre de cliques com crossfade de 25 ms na thread de áudio.
+  - Preservação do preamp fixo do PEQ mesmo quando o preamp do AutoEQ é desativado.
+- **Biblioteca de Perfis (`Settings › Profiles`):**
+  - Importação em lote de arquivos `.txt` ou pastas (inclusive via drag & drop), favoritos, renomeação, reordenação, visualização expandida com gráfico acima da tabela de filtros e backup/restauração em `.zip`.
+  - Fallback por nome + fabricante do dispositivo para manter o perfil ativo mesmo trocando de porta USB.
+  - **Comparação A/B com *Level-Match* (LUFS K-weighted):** alternância rápida por clique, menu de contexto ou atalho global.
 
-```bash
-brew install --cask finetune
-```
+### 3. Quick Configs (Cenas de Áudio)
+- Captura e restauração instantânea de snapshots completos (saída/entrada padrão, volumes, perfis AutoEQ, PEQ paramétrico, processamento estéreo e roteamento de apps).
+- Criação inline direto no cabeçalho do popup, atualização rápida (`Update "…"`), checkmark nativo na cena recém-aplicada (no menu do popup e no clique direito da barra de menus), gerenciamento completo em `Settings › Audio → Quick Configs` (Apply, Rename inline, Update com confirmação, Delete com confirmação) e atalho global **Next Quick Config**.
 
-**Manual** — [Download latest release](https://github.com/ronitsingh10/FineTune/releases/latest)
+### 4. Controles Estéreo, Proteção de Volume & Dispositivos
+- **Balance L/R** por dispositivo e por aplicativo (`BalanceSliderRow`, clique no valor para resetar a `Center`, pílula compacta `L30`/`R20` na `AppRow`).
+- **Mono** e **Swap L⇄R** por dispositivo.
+- **Max Volume Limit** (proteção auditiva configurável, ex. `≤ 70%`, com clamp imediato no slider e no volume real).
+- **Badges responsivos na `DeviceRow` (`BadgeFlowLayout`):** badges compactos (`PEQ`, `L/R`, `Mono`, `Swap`, `≤70%`) preservam largura legível e quebram linha automaticamente em *Compact* sem truncar nem esmagar o nome ou o slider.
+- **Bluetooth Output Only (Keep Music Quality):** evita troca automática para o perfil SCO/HFP de baixa qualidade em headsets Bluetooth.
+- **Estabilidade de Sample Rate:** recriação automática dos *process taps* quando qualquer dispositivo de saída muda de taxa de amostragem.
 
-## Quick Start
+### 5. Barra de Menus, Pin Flutuante e Janelas
+- **Live Level Meter** (medidor VU de 2 barras em tempo real) + **Porcentagem de Volume (`XX%` / `Muted`)** opcionais ao lado do ícone da barra de menus.
+- **Controles rápidos no ícone (`Icon Scroll & Option-Click`):** opt-in em *Settings → General → Menu Bar* com monitor local prioritário (antes do `FluidMenuBarExtra`) + monitor global para funcionar mesmo com outro app em foco — scroll suave ajusta o volume (com proteção contra inércia de trackpad e limite por evento), Option-click e middle-click alternam mute sem abrir o popup.
+- **Menu nativo de clique direito:** dispositivo ativo, Mute/Unmute, Switch Output Device, perfis de EQ, A/B, Quick Configs (`✓ last applied`) e *Manage Profile Library…*.
+- **Pin Flutuante (`PinnedPopupWindowController`):** mantém o popup flutuando acima das demais janelas ao clicar fora, reseta corretamente ao esconder/reabrir pelo ícone e desafixa/fecha limpo com `Esc`.
+- **Sempre na frente (`WindowFrontPresenter`):** janela de Settings e `NSOpenPanel` de importação abrem imediatamente na frente de outras janelas.
 
-1. Install FineTune and launch it from your Applications folder
-2. Grant **Screen & System Audio Recording** permission when prompted
-3. Click the FineTune icon in your menu bar. Apps playing audio appear automatically.
+---
 
-That's it. Adjust sliders, route audio, and explore EQ from the menu bar.
+## Armazenamento de Dados
 
-> **Tip:** Want FineTune to auto-switch to a specific device when you connect it? Open edit mode (pencil icon) and drag it above the built-in speakers. This is a one-time setup. Your preferred order is saved permanently.
+- **Configurações:** `~/Library/Application Support/ToneDesk/settings.json` (schema v13)
+- **Perfis AutoEQ / PEQ:** `~/Library/Application Support/ToneDesk/AutoEQ/`
 
-## Features
+---
 
-### 🎚 Volume Control
-- **Per-app volume** — Individual sliders and mute for each application
-- **Per-app volume boost** — 2x / 3x / 4x gain presets
-- **Pinned apps** — Keep apps visible in the menu bar even when they're not playing, so you can configure volume, EQ, and routing in advance
-- **Ignore apps** — Completely disengage FineTune from specific apps. Tears down the audio tap so the app returns to normal macOS audio
-- **Scroll-wheel volume** — Hover any slider in the popup, the HUD, or the EQ panel and scroll to adjust.
+## Build, Testes e Instalação Local
 
-### ⌨️ Keyboard
-- **Global volume hotkeys** — Bind your own keys to **App Volume Up**, **App Volume Down**, and **App Mute** from Settings → Shortcuts. The "app" is whichever is currently making sound, so volume-down while a YouTube tab plays behind a foreground Terminal turns down YouTube, not the terminal. If nothing is audible, the hotkey falls through to the frontmost app.
-- **Toggle the popup from anywhere** — Bind a hotkey to **Toggle FineTune Popup** and the menu bar opens or closes on demand, including from full-screen apps.
-- **Configurable step size** — Pick **Coarse / Normal / Fine / Extra-Fine** under Settings → Shortcuts → Volume Step. The same setting governs the F10–F12 media keys, the global hotkeys, and the popup's arrow-key navigation.
-- **Hold to ramp, auto-unmute on volume-up** — Holding App Volume Up or Down emits repeats the way macOS does for arrow keys. Volume-up while muted unmutes and sets the new level in one keystroke.
-- **Drive the popup with the keyboard** — Once the popup is open, **↑ / ↓** move between rows, **← / →** adjusts the focused row's volume (Shift = 2× step), **M** toggles mute, **Return / Space** activates, **Tab** switches between Output and Input device tabs, **Esc** closes. The focused row autoscrolls to center as you arrow through.
-
-### 🔀 Audio Routing
-- **Multi-device output** — Route audio to multiple devices simultaneously
-- **Audio routing** — Send apps to different outputs or follow system default
-- **Device priority** — Choose which device FineTune switches to when a new device connects; auto-fallback on disconnect
-- **Auto-restore** — When a device reconnects, apps automatically return to it with their volume, routing, and EQ intact
-
-### 🎛 EQ & Correction
-- **10-band EQ** — 20 presets across 5 categories
-- **User EQ presets** — Save, rename, and manage custom EQ configurations per app
-- **AutoEQ headphone correction** — Search thousands of headphone profiles or import your own ParametricEQ.txt files for per-device frequency response correction
-- **Loudness compensation** — Automatic bass and treble correction at low volumes using ISO 226:2023 equal-loudness contours, with real-time level management to keep perceived loudness consistent
-
-### 🖥 Devices & System
-- **Input device control** — Monitor and adjust microphone levels
-- **Alert volume** — Control macOS notification and alert volume from settings
-- **Smart volume backend** — FineTune auto-picks hardware, DDC, or software volume per device. If the hardware slider on a USB DAC or HDMI output doesn't actually control level, force software volume from the device inspector and FineTune remembers the choice for that device
-- **Device inspector** — Tap the info button on any device row for sample rate (with picker), transport, UID copy, hog-mode banner, and the software-volume override
-- **Hide devices** — Eye toggle in edit mode hides output and input devices you don't want in the list, mirroring the app-hide flow
-- **Bluetooth device management** — Connect paired devices directly from the menu bar
-- **Monitor speaker control** — Adjust volume on external displays via DDC
-- **Media keys & Volume HUD** — Opt-in F10–F12 control for the default output device, with a Tahoe-style or Classic-style on-screen HUD. The write goes through FineTune's volume pipeline, so keys keep working on USB interfaces and HDMI outputs where macOS's own keys are greyed out because the hardware slider is broken.
-- **Dynamic menu bar icon** — Pick from four styles in Settings (Default, Speaker, Waveform, Equalizer). The **Speaker** style tracks volume live (zero / low / mid / high glyphs) and switches to a slashed speaker when muted. All styles briefly flash the new output's SF Symbol on device switch. Changing style applies instantly, no relaunch required.
-- **Menu bar app** — Lightweight, always accessible
-- **URL schemes** — Automate volume, mute, device routing, and more from scripts
-
-### 🎨 Appearance
-- **Light or Dark theme** — Settings → General → Theme matches macOS or locks FineTune to Light or Dark. The menu bar popup, every popover, and the volume HUD switch immediately.
-- **Popup density** — Settings → General → Popup Size picks **Compact / Comfortable / Spacious** with a live tile preview. Compact fits more apps on small screens; Spacious gives bigger hit areas for trackpads.
-
-## About this fork
-
-This fork (karellima/FineTune) focuses on room correction with REW-generated profiles. Changes compared to upstream:
-
-- **Parametric EQ with up to 64 filters** (was 10). Larger files are rejected with a clear error instead of being truncated; out-of-range values and unknown lines are reported.
-- **Imported profiles match REW / Equalizer APO**: filters are applied exactly as written at any sample rate (no frequency pre-warping for imported files). Coefficients are verified against the RBJ cookbook at 44.1, 48 and 96 kHz in unit tests.
-- **Click-free profile switching**: changing profile, correction or preamp during playback crossfades over 25 ms.
-- **Preamp fix**: the preamp setting is now kept when audio moves to another output device.
-- **Profile library** (Settings › Profiles): imported profiles are kept by the app. Import many files or whole folders at once, or drag them onto the Settings window. Rename, duplicate, delete, favorite and reorder profiles; expand a row to see its preamp and filters.
-- **Quick switching**: right-click the menu bar icon to pick a profile for the default output with one click (the active one is checked), or use the "My Profiles" list in the AutoEQ popover. Next/previous profile shortcuts can be recorded in Settings › Shortcuts.
-- **A/B comparison**: choose profiles A and B in Settings › Profiles and switch with one click (menu, Settings or a shortcut). Optional level matching attenuates the louder profile using an approximate LUFS estimate (K-weighted pink noise), so you compare tone instead of loudness.
-- **Assignments survive USB port changes**: a device's profile is remembered by its name and manufacturer too, not only by its CoreAudio UID.
-- **Backup**: export the whole library to a `.zip` and restore it on any Mac (Settings › Profiles › Backup).
-
-### Using the profile library
-
-1. Open **Settings › Profiles** and click **Import…** (choose files or a folder), or drag `.txt` files or a folder onto the window. Files that are not profiles (e.g. a README) are listed as failed; nothing else is affected.
-2. Right-click a profile › **Apply to …** or right-click the menu bar icon and pick it. Switching during playback crossfades, without clicks.
-3. For A/B: right-click profiles › **Set as A** / **Set as B**, keep **Level-match** on, and press **Start A/B** (or the "Toggle EQ A/B" shortcut). The menu shows which one is playing.
-4. Back up with **Backup › Export Backup…**.
-
-Settings are stored in `~/Library/Application Support/FineTune/settings.json` (schema v13). When an older file is upgraded, a copy is kept as `settings.v<old>.backup.json` next to it. Profiles live in `~/Library/Application Support/FineTune/AutoEQ/`.
-
-## Documentation
-
-- **[AutoEQ & Headphone Correction](guide/autoeq.md)** — Apply frequency correction from the [AutoEQ](https://github.com/jaakkopasanen/AutoEq) project, import [EqualizerAPO](https://sourceforge.net/projects/equalizerapo/) profiles, or browse [autoeq.app](https://www.autoeq.app/)
-- **[URL Schemes](guide/url-schemes.md)** — Automate FineTune from Terminal, [Shortcuts](https://support.apple.com/guide/shortcuts-mac), [Raycast](https://raycast.com), or scripts
-- **[Troubleshooting](guide/troubleshooting.md)** — Permission issues, missing apps, audio problems
-
-## Contributing
-
-- **Star this repo** — Help others discover FineTune
-- **Report bugs** — [Open an issue](https://github.com/ronitsingh10/FineTune/issues)
-- **Contribute code** — See [CONTRIBUTING.md](CONTRIBUTING.md)
-
-### Build from Source
+Requisitos: **macOS 15+** e **Xcode** instalado.
 
 ```bash
-git clone https://github.com/ronitsingh10/FineTune.git
-cd FineTune
-open FineTune.xcodeproj
+# Executar a suíte completa de testes automatizados (1.080 testes)
+xcodebuild test -project FineTune.xcodeproj -scheme FineTune \
+  -destination 'platform=macOS' -only-testing:FineTuneTests
+
+# Compilar versão Release
+xcodebuild build -project FineTune.xcodeproj -scheme FineTune \
+  -configuration Release -destination 'platform=macOS'
 ```
 
-## Requirements
+O aplicativo compilado é gerado em `DerivedData/.../Build/Products/Release/ToneDesk.app` e pode ser copiado diretamente para `/Applications/ToneDesk.app`.
 
-- macOS 15.0 (Sequoia) or later
-- Audio capture permission (prompted on first launch)
+---
 
-## Support
+## Licença
 
-FineTune is free and open source, forever. If it made your day a little easier, you can buy me a coffee — but genuinely not expected 🙏
-
-[![Buy me a coffee](https://img.shields.io/badge/Buy_me_a_coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/ronitsingh10)
-
-
-## License
-
-[GPL v3](LICENSE)
+Distribuído sob a licença **GNU General Public License v3.0** ([LICENSE](LICENSE)), mantendo a licença da base original FineTune.

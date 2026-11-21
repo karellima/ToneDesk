@@ -1,7 +1,7 @@
 // FineTune/Audio/AutoEQ/AutoEQProcessor.swift
 import Foundation
 import Accelerate
-import Darwin.C  // OSMemoryBarrier
+import Synchronization
 
 /// RT-safe parametric EQ processor for AutoEQ / room correction profiles.
 ///
@@ -16,7 +16,9 @@ import Darwin.C  // OSMemoryBarrier
 /// ramp. A sample-rate change is a hard cut (the old coefficients are invalid).
 ///
 /// ## Thread model
-/// - Main thread publishes `(setup, preampGain)` with a seqlock (`_seq` odd while writing).
+/// - Main thread publishes `(setup, preampGain)` with an atomic seqlock (`_seq` odd while
+///   writing). All cross-thread fields use `Synchronization.Atomic` with explicit
+///   acquire/release ordering (lock-free, RT-safe, and Swift 6 data-race free).
 ///   The audio thread never blocks: if it observes a write in progress it keeps the
 ///   previous configuration and retries on the next callback.
 /// - Replaced setups are retired on the main thread and destroyed only after the audio
@@ -45,16 +47,19 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
     /// Whether the profile preamp is applied (main thread).
     var isPreampEnabled: Bool { _preampEnabled }
 
-    // MARK: - Published state (main writes, audio reads via seqlock)
+    // MARK: - Published state (main writes, audio reads via atomic seqlock)
 
-    private nonisolated(unsafe) var _seq: UInt64 = 0
-    private nonisolated(unsafe) var _pubSetup: vDSP_biquad_Setup?
-    private nonisolated(unsafe) var _pubGain: Float = 1.0
-    private nonisolated(unsafe) var _pubHardCut: UInt64 = 0
-    private nonisolated(unsafe) var _pubFadeFrames: Int = 1
+    private let _seq = Atomic<UInt64>(0)
+    private let _pubSetupBits = Atomic<UInt>(0)
+    private let _pubGainBits = Atomic<UInt32>(Float(1.0).bitPattern)
+    private let _pubHardCut = Atomic<UInt64>(0)
+    private let _pubFadeFrames = Atomic<Int>(1)
 
     /// Highest seq whose configuration the audio thread has fully adopted (fade finished).
-    private nonisolated(unsafe) var _rtAckSeq: UInt64 = 0
+    private let _rtAckSeq = Atomic<UInt64>(0)
+
+    /// Mirror of `rtCurSetup != nil || rtFading` published by the audio thread for `isEnabled`.
+    private let _rtActive = Atomic<Bool>(false)
 
     // MARK: - Audio-thread state
 
@@ -91,7 +96,7 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         scratch.initialize(repeating: 0, count: Self.scratchFrames * 2)
         // Base-class delay buffers are unused; keep them minimal.
         super.init(sampleRate: sampleRate, maxSections: 1, category: "AutoEQProcessor")
-        _pubFadeFrames = Self.fadeFrames(for: sampleRate)
+        _pubFadeFrames.store(Self.fadeFrames(for: sampleRate), ordering: .relaxed)
     }
 
     deinit {
@@ -106,9 +111,19 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         max(1, Int(rate * crossfadeSeconds))
     }
 
+    @inline(__always)
+    private static func encodeSetup(_ setup: vDSP_biquad_Setup?) -> UInt {
+        setup.map { UInt(bitPattern: $0) } ?? 0
+    }
+
+    @inline(__always)
+    private static func decodeSetup(_ bits: UInt) -> vDSP_biquad_Setup? {
+        bits == 0 ? nil : vDSP_biquad_Setup(bitPattern: bits)
+    }
+
     /// True while a profile is active or fading out. Read by the render callback.
     override var isEnabled: Bool {
-        _pubSetup != nil || rtCurSetup != nil || rtFading
+        _pubSetupBits.load(ordering: .relaxed) != 0 || _rtActive.load(ordering: .relaxed)
     }
 
     /// Number of sections in the active profile (diagnostic / tests).
@@ -153,8 +168,8 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
             return
         }
 
-        // Preamp: dB → linear (bypassed when preamp disabled — limiter handles peaks)
-        let gainDB = (_preampEnabled ? validated.preampDB : 0) + validated.levelTrimDB
+        // Preamp: dB → linear (AutoEQ preamp can be bypassed; PEQ fixedPreampDB and A/B trim always apply)
+        let gainDB = (_preampEnabled ? validated.preampDB : 0) + validated.fixedPreampDB + validated.levelTrimDB
         let preampLinear = powf(10.0, gainDB / 20.0)
         publish(setup: newSetup, gain: preampLinear, hardCut: hardCut)
         activeFilterCount = filters.count
@@ -168,18 +183,24 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         let old = publishedSetup
         publishedSetup = setup
 
-        _seq &+= 1            // odd: write in progress
-        OSMemoryBarrier()
-        _pubSetup = setup
-        _pubGain = gain
-        _pubFadeFrames = Self.fadeFrames(for: sampleRate)
-        if hardCut { _pubHardCut &+= 1 }
-        OSMemoryBarrier()
-        _seq &+= 1            // even: stable
-        OSMemoryBarrier()
+        let startSeq = _seq.load(ordering: .relaxed)
+        // Odd seq marks write-in-progress; full fence prevents any payload store from
+        // reordering above the odd store on weakly-ordered architectures (ARM64).
+        _seq.store(startSeq &+ 1, ordering: .relaxed)
+        atomicMemoryFence(ordering: .sequentiallyConsistent)
+        _pubSetupBits.store(Self.encodeSetup(setup), ordering: .relaxed)
+        _pubGainBits.store(gain.bitPattern, ordering: .relaxed)
+        _pubFadeFrames.store(Self.fadeFrames(for: sampleRate), ordering: .relaxed)
+        if hardCut {
+            let hc = _pubHardCut.load(ordering: .relaxed)
+            _pubHardCut.store(hc &+ 1, ordering: .relaxed)
+        }
+        let endSeq = startSeq &+ 2
+        // Release store prevents any payload store from sinking below the even seq store.
+        _seq.store(endSeq, ordering: .releasing)
 
         if let old {
-            retired.append((old, _seq))
+            retired.append((old, endSeq))
             scheduleReclaim()
         }
     }
@@ -191,8 +212,7 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             self.reclaimScheduled = false
-            OSMemoryBarrier()
-            let ack = self._rtAckSeq
+            let ack = self._rtAckSeq.load(ordering: .acquiring)
             var keep: [(setup: vDSP_biquad_Setup, retiredAt: UInt64)] = []
             for r in self.retired {
                 if ack >= r.retiredAt {
@@ -257,30 +277,44 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
     }
 
     /// Picks up a newly published configuration (audio thread). Non-blocking.
+    /// Sample-rate hard cuts always preempt an in-progress crossfade so old-rate
+    /// coefficients are never applied at the new sample rate.
     @inline(__always)
     private func pollPublished() {
-        guard !rtFading else { return }  // finish the current fade first
-        let s1 = _seq
+        // Acquire load prevents payload loads from hoisting above the first seq check.
+        let s1 = _seq.load(ordering: .acquiring)
         guard s1 != rtSeenSeq, s1 & 1 == 0 else { return }
-        OSMemoryBarrier()
-        let setup = _pubSetup
-        let gain = _pubGain
-        let hardCut = _pubHardCut
-        let fadeFrames = _pubFadeFrames
-        OSMemoryBarrier()
-        guard _seq == s1 else { return }  // torn read — retry next callback
-        rtSeenSeq = s1
+
+        let setupBits = _pubSetupBits.load(ordering: .relaxed)
+        let gainBits = _pubGainBits.load(ordering: .relaxed)
+        let hardCut = _pubHardCut.load(ordering: .relaxed)
+        let fadeFrames = _pubFadeFrames.load(ordering: .relaxed)
+
+        // Acquire fence prevents payload loads from sinking below the second seq check on ARM64.
+        atomicMemoryFence(ordering: .acquiring)
+        guard _seq.load(ordering: .relaxed) == s1 else { return }  // torn read — retry next callback
+
+        let setup = Self.decodeSetup(setupBits)
+        let gain = Float(bitPattern: gainBits)
 
         if hardCut != rtSeenHardCut {
+            rtSeenSeq = s1
             rtSeenHardCut = hardCut
+            rtFading = false
+            rtOldSetup = nil
             clearBank(0); clearBank(1)
             rtCurSetup = setup; rtCurGain = gain; rtCurBank = 0
-            _rtAckSeq = s1
+            _rtActive.store(setup != nil, ordering: .relaxed)
+            _rtAckSeq.store(s1, ordering: .releasing)
             return
         }
 
+        guard !rtFading else { return }  // finish the current fade before starting a normal switch
+        rtSeenSeq = s1
+
         if setup == rtCurSetup && gain == rtCurGain {
-            _rtAckSeq = s1
+            _rtActive.store(rtCurSetup != nil, ordering: .relaxed)
+            _rtAckSeq.store(s1, ordering: .releasing)
             return
         }
 
@@ -291,6 +325,7 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
         rtFadeLen = fadeFrames
         rtFadePos = 0
         rtFading = true
+        _rtActive.store(true, ordering: .relaxed)
     }
 
     /// Process stereo interleaved audio. RT-safe: no allocations, locks, ObjC, or I/O.
@@ -331,7 +366,8 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
                     if rtFadePos >= rtFadeLen {
                         rtFading = false
                         rtOldSetup = nil
-                        _rtAckSeq = rtSeenSeq
+                        _rtActive.store(rtCurSetup != nil, ordering: .relaxed)
+                        _rtAckSeq.store(rtSeenSeq, ordering: .releasing)
                     }
                 } else {
                     runPath(rtCurSetup, gain: rtCurGain, bankIndex: rtCurBank, buf: chunk, frames: n)
@@ -340,11 +376,19 @@ final class AutoEQProcessor: BiquadProcessor, @unchecked Sendable {
             }
         }
 
-        // NaN safety net — pathological coefficients can produce NaN that
-        // propagates through the entire downstream chain
-        if output[0].isNaN || output[1].isNaN {
+        // Non-finite safety net — pathological coefficients can produce NaN/Inf anywhere
+        // in the block that would propagate through the entire downstream chain.
+        let sampleCount = frameCount * 2
+        var hasNonFinite = false
+        for i in 0..<sampleCount {
+            if !output[i].isFinite {
+                hasNonFinite = true
+                break
+            }
+        }
+        if hasNonFinite {
             clearBank(0); clearBank(1)
-            memset(output, 0, frameCount * 2 * MemoryLayout<Float>.size)
+            memset(output, 0, sampleCount * MemoryLayout<Float>.size)
         }
     }
 }

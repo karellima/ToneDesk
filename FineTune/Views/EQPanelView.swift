@@ -10,6 +10,8 @@ struct EQPanelView: View {
     let onSavePreset: (String, EQSettings) -> Void
     let onDeleteUserPreset: (UUID) -> Void
     let onRenameUserPreset: (UUID, String) -> Void
+    var appBalance: Float = 0.0
+    var onBalanceChange: ((Float) -> Void)? = nil
 
     @State private var isSaving = false
     @State private var savePresetName = ""
@@ -54,7 +56,7 @@ struct EQPanelView: View {
             HStack {
                 // EQ toggle on left
                 HStack(spacing: 6) {
-                    Toggle("", isOn: $settings.isEnabled)
+                    Toggle("Enable EQ", isOn: $settings.isEnabled)
                         .toggleStyle(.switch)
                         .scaleEffect(0.7)
                         .labelsHidden()
@@ -121,6 +123,19 @@ struct EQPanelView: View {
             .opacity(settings.isEnabled ? 1.0 : 0.3)
             .allowsHitTesting(settings.isEnabled)
             .animation(.easeInOut(duration: 0.2), value: settings.isEnabled)
+
+            if let onBalanceChange {
+                Rectangle()
+                    .fill(DesignTokens.Colors.separator)
+                    .frame(height: 0.5)
+
+                BalanceSliderRow(
+                    balance: appBalance,
+                    onChange: onBalanceChange,
+                    labelWidth: 50,
+                    accessibilitySubject: "App stereo balance"
+                )
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

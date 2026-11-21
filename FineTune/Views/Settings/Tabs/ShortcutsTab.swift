@@ -53,7 +53,7 @@ struct ShortcutsTab: View {
         SettingsSection("Media Keys") {
             SettingsRow(
                 "Media Keys Control",
-                description: "Use F11/F12 (or volume keys) to control FineTune"
+                description: "Use F11/F12 (or volume keys) to control ToneDesk"
             ) {
                 Toggle("", isOn: $settings.appSettings.mediaKeyControlEnabled)
                     .toggleStyle(.switch)
@@ -117,6 +117,7 @@ struct ShortcutsTab: View {
         case .autoEQNextProfile: "Apply the next profile from your EQ library to the default output"
         case .autoEQPreviousProfile: "Apply the previous profile from your EQ library to the default output"
         case .autoEQToggleAB: "Switch between the A and B profiles of your A/B comparison"
+        case .nextQuickConfig: "Switch to the next saved Quick Config audio scene"
         }
     }
 }

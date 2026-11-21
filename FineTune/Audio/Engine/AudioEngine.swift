@@ -272,9 +272,10 @@ final class AudioEngine {
                 self.bluetoothDeviceMonitor.start()
 
                 #if !APP_STORE
-                ddc.onProbeCompleted = { [weak self] in
-                    self?.deviceVolumeMonitor.refreshAfterDDCProbe()
-                    self?.refreshAllTapOutputStates()
+                let engine = self
+                ddc.onProbeCompleted = { [weak engine] in
+                    engine?.deviceVolumeMonitor.refreshAfterDDCProbe()
+                    engine?.refreshAllTapOutputStates()
                 }
                 ddc.start()
                 #endif
@@ -794,9 +795,7 @@ final class AudioEngine {
         }
         // A/B level-match trims depend on whether the preamp is counted.
         if settingsManager.autoEQAB.isConfigured {
-            for uid in Set(taps.values.compactMap(\.currentDeviceUID)) {
-                applyAutoEQToTaps(for: uid)
-            }
+            applyAutoEQToAllTaps()
         }
     }
 
@@ -822,11 +821,54 @@ final class AudioEngine {
         }
     }
 
-    /// Synchronous in-memory AutoEQ profile lookup. nil = not yet cached.
+    /// Re-apply AutoEQ profiles across every active tap (e.g. when global A/B trims change).
+    func applyAutoEQToAllTaps() {
+        for uid in Set(taps.values.compactMap(\.currentDeviceUID)) {
+            applyAutoEQToTaps(for: uid)
+        }
+    }
+
+    /// Re-apply stereo processing (balance/mono/swap) to a single tap.
+    func applyStereoProcessing(to tap: any ProcessTapControlling) {
+        let appBalance = settingsManager.getAppBalance(for: tap.app.persistenceIdentifier)
+        let deviceProcessing = tap.currentDeviceUID.map { settingsManager.getDeviceAudioProcessing(for: $0) } ?? .default
+        tap.updateStereoProcessing(appBalance: appBalance, deviceProcessing: deviceProcessing)
+    }
+
+    /// Re-apply stereo processing to all taps routed to `deviceUID`.
+    func applyStereoProcessingToTaps(for deviceUID: String) {
+        for tap in taps.values where tap.currentDeviceUID == deviceUID {
+            applyStereoProcessing(to: tap)
+        }
+    }
+
+    /// Re-apply stereo processing to a specific app tap by PID.
+    func applyStereoProcessingToTap(forPID pid: pid_t) {
+        if let tap = taps[pid] {
+            applyStereoProcessing(to: tap)
+        }
+    }
+
+    /// Re-apply stereo processing across all active taps.
+    func applyStereoProcessingToAllTaps() {
+        for tap in taps.values {
+            applyStereoProcessing(to: tap)
+        }
+    }
+
+    /// Synchronous in-memory AutoEQ + Device Parametric EQ lookup. nil = no active correction.
     private func autoEQProfileForActivation(deviceUID: String) -> AutoEQProfile? {
-        guard let device = deviceMonitor.device(for: deviceUID), device.supportsAutoEQ else { return nil }
-        guard let selection = resolvedAutoEQSelection(for: deviceUID), selection.isEnabled else { return nil }
-        return autoEQProfileManager.profile(for: selection.profileID).map(autoEQProfileForPlayback)
+        guard let device = deviceMonitor.device(for: deviceUID) else { return nil }
+        let baseAutoEQ: AutoEQProfile?
+        if device.supportsAutoEQ,
+           let selection = resolvedAutoEQSelection(for: deviceUID),
+           selection.isEnabled {
+            baseAutoEQ = autoEQProfileManager.profile(for: selection.profileID).map(autoEQProfileForPlayback)
+        } else {
+            baseAutoEQ = nil
+        }
+        let peq = settingsManager.getDeviceParametricEQ(for: deviceUID)
+        return DeviceParametricEQ.combinedProfile(deviceUID: deviceUID, baseAutoEQ: baseAutoEQ, parametricEQ: peq)
     }
 
     private func tapInitialState(forApp app: AudioApp, primaryDeviceUID: String, deviceVolume: Float) -> TapInitialState {
@@ -838,41 +880,47 @@ final class AudioEngine {
             autoEQPreampEnabled: settingsManager.autoEQPreampEnabled,
             loudnessVolume: deviceVolume * volumeState.getVolume(for: app.id),
             loudnessCompensationEnabled: settingsManager.appSettings.loudnessCompensationEnabled,
-            loudnessEqualizerSettings: loudnessEqSettings
+            loudnessEqualizerSettings: loudnessEqSettings,
+            appBalance: settingsManager.getAppBalance(for: app.persistenceIdentifier),
+            deviceProcessing: settingsManager.getDeviceAudioProcessing(for: primaryDeviceUID)
         )
     }
 
-    /// Skips AutoEQ entirely for devices that don't support it (speakers, HDMI, etc.).
-    /// If the profile isn't loaded yet, triggers an async fetch and applies when ready.
+    /// Applies AutoEQ (for supported devices) merged with any active Device Parametric EQ.
+    /// If an AutoEQ profile isn't loaded yet, applies Device Parametric EQ immediately and
+    /// triggers an async fetch to merge AutoEQ when ready.
     private func applyAutoEQToTap(_ tap: any ProcessTapControlling) {
+        applyStereoProcessing(to: tap)
         guard let deviceUID = tap.currentDeviceUID else { return }
 
-        // Skip AutoEQ for non-headphone devices (or if device not found in monitor)
         guard let device = deviceMonitor.device(for: deviceUID) else {
             logger.debug("AutoEQ skip for \(tap.app.name): device \(deviceUID) not found in monitor")
             return
         }
-        guard device.supportsAutoEQ else {
-            tap.updateAutoEQProfile(nil)
-            logger.debug("AutoEQ skip for \(tap.app.name): \(device.name) doesn't support AutoEQ")
-            return
-        }
 
-        guard let selection = resolvedAutoEQSelection(for: deviceUID),
+        let peq = settingsManager.getDeviceParametricEQ(for: deviceUID)
+
+        guard device.supportsAutoEQ,
+              let selection = resolvedAutoEQSelection(for: deviceUID),
               selection.isEnabled else {
-            tap.updateAutoEQProfile(nil)
-            logger.debug("AutoEQ skip for \(tap.app.name): no selection or disabled for \(device.name)")
+            let combined = DeviceParametricEQ.combinedProfile(deviceUID: deviceUID, baseAutoEQ: nil, parametricEQ: peq)
+            tap.updateAutoEQProfile(combined)
             return
         }
 
         // Try in-memory first (instant)
         if let profile = autoEQProfileManager.profile(for: selection.profileID) {
-            tap.updateAutoEQProfile(autoEQProfileForPlayback(profile))
+            let combined = DeviceParametricEQ.combinedProfile(
+                deviceUID: deviceUID,
+                baseAutoEQ: autoEQProfileForPlayback(profile),
+                parametricEQ: peq
+            )
+            tap.updateAutoEQProfile(combined)
             return
         }
 
-        // Profile not loaded yet — fetch asynchronously
-        tap.updateAutoEQProfile(nil)
+        // Profile not loaded yet — apply PEQ alone for now, then fetch AutoEQ asynchronously
+        tap.updateAutoEQProfile(DeviceParametricEQ.combinedProfile(deviceUID: deviceUID, baseAutoEQ: nil, parametricEQ: peq))
         Task { @MainActor in
             guard let profile = await autoEQProfileManager.resolveProfile(for: selection.profileID) else { return }
             // Verify tap still exists and is still routed to the same device
@@ -880,8 +928,27 @@ final class AudioEngine {
             guard let latestSelection = resolvedAutoEQSelection(for: deviceUID),
                   latestSelection.profileID == selection.profileID,
                   latestSelection.isEnabled else { return }
-            tap.updateAutoEQProfile(autoEQProfileForPlayback(profile))
+            let latestPEQ = settingsManager.getDeviceParametricEQ(for: deviceUID)
+            let combined = DeviceParametricEQ.combinedProfile(
+                deviceUID: deviceUID,
+                baseAutoEQ: autoEQProfileForPlayback(profile),
+                parametricEQ: latestPEQ
+            )
+            tap.updateAutoEQProfile(combined)
         }
+    }
+
+    /// Peak audio level (0...1) across active taps routed to the current default output device.
+    /// Used for the live menu-bar VU meter.
+    var currentOutputPeakLevel: Float {
+        let targetUID = deviceVolumeMonitor.defaultDeviceUID
+        var peak: Float = 0.0
+        for tap in taps.values {
+            guard !tap.isMuted else { continue }
+            if let targetUID, tap.currentDeviceUID != targetUID { continue }
+            peak = max(peak, tap.audioLevel)
+        }
+        return peak
     }
 
     /// Sets the system default output device, routes followsDefault apps, and registers
@@ -895,6 +962,10 @@ final class AudioEngine {
             outputEchoTracker.increment(uid)
             lastConfirmedDefaultUID = uid
             routeFollowsDefaultApps(to: uid)
+            if settingsManager.getDeviceAudioProcessing(for: uid).bluetoothOutputOnly,
+               let currentInputUID = deviceVolumeMonitor.defaultInputDeviceUID {
+                _ = enforceBluetoothOutputOnlyIfNeeded(forInputUID: currentInputUID)
+            }
         }
         return true
     }
@@ -2055,6 +2126,13 @@ final class AudioEngine {
             return
         }
 
+        // Bluetooth Output-Only guard: prevents a Bluetooth headset marked Output-Only
+        // from dragging the system input into SCO/HFP low-quality call mode even when
+        // global Lock Input Device is off.
+        if enforceBluetoothOutputOnlyIfNeeded(forInputUID: newDefaultInputUID) {
+            return
+        }
+
         // If lock is disabled, let system control input freely
         guard settingsManager.appSettings.lockInputDevice else { return }
 
@@ -2103,9 +2181,16 @@ final class AudioEngine {
     private func applyInputDeviceLock(_ device: AudioDevice) {
         logger.info("Locking input device to: \(device.name)")
         settingsManager.setLockedInputDeviceUID(device.uid)
-        if deviceVolumeMonitor.setDefaultInputDevice(device.id) {
-            inputEchoTracker.increment(device.uid)
-        }
+        _ = switchDefaultInputTrackingEcho(device)
+    }
+
+    /// Switches system default input device while registering an echo so CoreAudio's callback
+    /// does not re-trigger `handleDefaultInputDeviceChanged`.
+    @discardableResult
+    func switchDefaultInputTrackingEcho(_ device: AudioDevice) -> Bool {
+        guard deviceVolumeMonitor.setDefaultInputDevice(device.id) else { return false }
+        inputEchoTracker.increment(device.uid)
+        return true
     }
 
     /// Called when the user toggles lockInputDevice ON in settings.

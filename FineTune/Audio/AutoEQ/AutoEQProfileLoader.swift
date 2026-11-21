@@ -11,13 +11,19 @@ nonisolated final class AutoEQProfileLoader {
 
     static var defaultImportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("FineTune")
+            .appendingPathComponent("ToneDesk")
             .appendingPathComponent("AutoEQ")
     }
 
     /// - Parameter directory: Override for tests. Defaults to Application Support/FineTune/AutoEQ.
     init(directory: URL? = nil) {
         self.importDirectory = directory ?? Self.defaultImportDirectory
+    }
+
+    /// Rejects profile IDs that could escape `importDirectory` when used as filenames.
+    static func isSafeProfileID(_ id: String) -> Bool {
+        guard !id.isEmpty, !id.hasPrefix("."), !id.contains("..") else { return false }
+        return !id.contains("/") && !id.contains("\\") && !id.contains(":") && !id.contains("\0")
     }
 
     // MARK: - Imported Profiles
@@ -32,7 +38,13 @@ nonisolated final class AutoEQProfileLoader {
             let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "txt" }
             for file in files {
-                let text = try Self.readText(at: file)
+                let text: String
+                do {
+                    text = try Self.readText(at: file)
+                } catch {
+                    logger.warning("Skipping unreadable profile \(file.lastPathComponent): \(error.localizedDescription)")
+                    continue
+                }
                 let stableID = file.deletingPathExtension().lastPathComponent
 
                 let nameFile = dir.appendingPathComponent("\(stableID).name")
@@ -43,7 +55,7 @@ nonisolated final class AutoEQProfileLoader {
                     profiles.append(profile)
                 }
             }
-            logger.info("Loaded \(files.count) imported AutoEQ profiles")
+            logger.info("Loaded \(profiles.count) imported AutoEQ profiles")
         } catch {
             logger.error("Failed to load imported profiles: \(error.localizedDescription)")
         }
@@ -69,7 +81,8 @@ nonisolated final class AutoEQProfileLoader {
             return AutoEQParseReport(profile: nil, warnings: [], error: .fileError(error.localizedDescription))
         }
 
-        let report = AutoEQParser.parseReport(text: text, name: name, source: .imported, id: id)
+        let safeID = id.flatMap { Self.isSafeProfileID($0) ? $0 : nil }
+        let report = AutoEQParser.parseReport(text: text, name: name, source: .imported, id: safeID)
         guard let profile = report.profile else {
             logger.warning("Failed to parse imported file: \(name)")
             return report

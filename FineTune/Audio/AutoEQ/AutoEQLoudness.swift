@@ -1,5 +1,6 @@
 // FineTune/Audio/AutoEQ/AutoEQLoudness.swift
 import Foundation
+import os
 
 /// Approximate loudness change a profile applies, used to level-match A/B comparisons.
 ///
@@ -11,6 +12,19 @@ nonisolated enum AutoEQLoudness {
 
     /// Number of log-spaced analysis points between 20 Hz and 20 kHz.
     static let pointCount = 480
+
+    private struct TrimCacheKey: Equatable {
+        let a: AutoEQProfile
+        let b: AutoEQProfile
+        let includePreamp: Bool
+    }
+
+    private struct TrimCacheEntry {
+        let key: TrimCacheKey
+        let value: (Float, Float)
+    }
+
+    private static let trimCache = OSAllocatedUnfairLock<TrimCacheEntry?>(initialState: nil)
 
     /// Estimated loudness change (dB) of `profile`, including its preamp when requested.
     static func estimatedGainDB(of profile: AutoEQProfile, includePreamp: Bool, sampleRate: Double = 48000) -> Double {
@@ -36,10 +50,16 @@ nonisolated enum AutoEQLoudness {
     /// Level-matching trims for an A/B pair: the louder profile is attenuated so both
     /// sound equally loud; the quieter one is never boosted. Returns (trimA, trimB) in dB (≤ 0).
     static func levelMatchTrims(a: AutoEQProfile, b: AutoEQProfile, includePreamp: Bool) -> (Float, Float) {
+        let key = TrimCacheKey(a: a, b: b, includePreamp: includePreamp)
+        if let cached = trimCache.withLock({ $0?.key == key ? $0?.value : nil }) {
+            return cached
+        }
         let la = estimatedGainDB(of: a, includePreamp: includePreamp)
         let lb = estimatedGainDB(of: b, includePreamp: includePreamp)
         let quietest = min(la, lb)
-        return (Float(quietest - la), Float(quietest - lb))
+        let trims = (Float(quietest - la), Float(quietest - lb))
+        trimCache.withLock { $0 = TrimCacheEntry(key: key, value: trims) }
+        return trims
     }
 
     // MARK: - Helpers

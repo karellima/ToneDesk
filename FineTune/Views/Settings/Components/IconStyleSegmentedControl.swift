@@ -36,6 +36,7 @@ private struct IconOption: View {
                         .font(.system(size: 14))
                 } else {
                     Image(style.iconName)
+                        .renderingMode(.template)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 14, height: 14)

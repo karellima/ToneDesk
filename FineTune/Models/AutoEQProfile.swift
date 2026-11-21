@@ -27,6 +27,9 @@ nonisolated struct AutoEQProfile: Codable, Equatable, Identifiable {
     /// Runtime-only extra gain (dB) applied with the preamp, e.g. A/B level matching.
     /// Not persisted (absent from `CodingKeys`). Applied even when the preamp is bypassed.
     var levelTrimDB: Float = 0
+    /// Runtime-only manual preamp (dB) from the device's global Parametric EQ.
+    /// Not persisted (absent from `CodingKeys`). Always applied even when AutoEQ preamp is bypassed.
+    var fixedPreampDB: Float = 0
 
     /// Maximum number of biquad sections a profile may contain.
     ///
@@ -89,9 +92,13 @@ extension AutoEQProfile {
     /// constructed directly, the processor refuses it (it never truncates).
     func validated() -> AutoEQProfile {
         let validFilters = filters.filter { f in
-            f.frequency > 0 && f.q > 0 && f.gainDB.isFinite && abs(f.gainDB) <= Self.gainRangeDB.upperBound
+            f.frequency.isFinite && f.frequency > 0
+                && f.q.isFinite && f.q > 0
+                && f.gainDB.isFinite && abs(f.gainDB) <= Self.gainRangeDB.upperBound
         }
-        let clampedPreamp = max(Self.preampRangeDB.lowerBound, min(Self.preampRangeDB.upperBound, preampDB))
+        let clampedPreamp: Float = preampDB.isFinite
+            ? max(Self.preampRangeDB.lowerBound, min(Self.preampRangeDB.upperBound, preampDB))
+            : 0
         var result = AutoEQProfile(
             id: id, name: name, source: source,
             preampDB: clampedPreamp,
@@ -100,6 +107,7 @@ extension AutoEQProfile {
             optimizedSampleRate: optimizedSampleRate
         )
         result.levelTrimDB = levelTrimDB.isFinite ? max(-30, min(0, levelTrimDB)) : 0
+        result.fixedPreampDB = fixedPreampDB.isFinite ? max(-30, min(12, fixedPreampDB)) : 0
         return result
     }
 }

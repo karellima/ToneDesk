@@ -32,7 +32,10 @@ nonisolated struct AutoEQABSettings: Codable, Equatable {
     /// Profile ID of the active slot.
     var activeProfileID: String? { active == .a ? profileA : profileB }
 
-    var isConfigured: Bool { profileA != nil && profileB != nil }
+    var isConfigured: Bool {
+        guard let profileA, let profileB else { return false }
+        return profileA != profileB
+    }
 
     init(profileA: String? = nil, profileB: String? = nil, active: Slot = .a, levelMatch: Bool = true) {
         self.profileA = profileA

@@ -9,4 +9,6 @@ struct TapInitialState {
     var loudnessVolume: Float = 1.0
     var loudnessCompensationEnabled: Bool = false
     var loudnessEqualizerSettings: LoudnessEqualizerSettings = .init()
+    var appBalance: Float = 0.0
+    var deviceProcessing: DeviceAudioProcessingSettings = .default
 }

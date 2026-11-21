@@ -360,6 +360,15 @@ final class DeviceVolumeMonitor: DeviceVolumeProviding {
         }
     }
 
+    /// Returns the configured max volume limit converted into the device's backend gain/scalar scale,
+    /// or `nil` when no limit is configured for this device.
+    func maxVolumeLimitInBackendScale(for deviceID: AudioDeviceID, backend: VolumeControlTier) -> Float? {
+        guard let uid = outputDeviceUID(for: deviceID),
+              let limit = settingsManager.getDeviceAudioProcessing(for: uid).maxVolumeLimit,
+              limit < 0.995 else { return nil }
+        return VolumeMapping.systemGain(forSliderFraction: Double(limit), tier: backend)
+    }
+
     /// Sets the volume for a specific device
     func setVolume(for deviceID: AudioDeviceID, to volume: Float) {
         guard deviceID.isValid else {
@@ -368,7 +377,11 @@ final class DeviceVolumeMonitor: DeviceVolumeProviding {
         }
 
         let backend = outputVolumeBackend(for: deviceID)
-        let clamped = Self.storedVolume(volume, tier: backend)
+        var effectiveVolume = volume
+        if let maxBackend = maxVolumeLimitInBackendScale(for: deviceID, backend: backend) {
+            effectiveVolume = min(effectiveVolume, maxBackend)
+        }
+        let clamped = Self.storedVolume(effectiveVolume, tier: backend)
         switch backend {
         case .hardware:
             let success = deviceID.setOutputVolumeScalar(clamped)
@@ -474,7 +487,10 @@ final class DeviceVolumeMonitor: DeviceVolumeProviding {
 
                 let currentVisibleVolume = volumes[deviceID] ?? settingsManager.getSoftwareDeviceVolume(for: deviceUID) ?? 0
                 if currentVisibleVolume == 0 {
-                    let restoredVolume = settingsManager.getSoftwareDeviceSavedVolume(for: deviceUID) ?? 0.5
+                    var restoredVolume = settingsManager.getSoftwareDeviceSavedVolume(for: deviceUID) ?? 0.5
+                    if let maxBackend = maxVolumeLimitInBackendScale(for: deviceID, backend: .software) {
+                        restoredVolume = min(restoredVolume, maxBackend)
+                    }
                     settingsManager.setSoftwareDeviceVolume(for: deviceUID, to: restoredVolume)
                     volumes[deviceID] = restoredVolume
                     onVolumeChanged?(deviceID, restoredVolume)
@@ -879,6 +895,14 @@ final class DeviceVolumeMonitor: DeviceVolumeProviding {
         #endif
 
         let newVolume = clampedVolume(deviceID.readOutputVolumeScalar())
+
+        // Enforce per-device max volume limit even if an external app or macOS raised the slider.
+        if let maxBackend = maxVolumeLimitInBackendScale(for: deviceID, backend: .hardware),
+           newVolume > maxBackend + 0.005 {
+            logger.info("Clamping external volume \(newVolume) → \(maxBackend) for device \(deviceID) (max volume limit)")
+            setVolume(for: deviceID, to: maxBackend)
+            return
+        }
 
         // Deduplicate: HAL often fires L/R channel notifications for the same volume value.
         // Both values come from the same CoreAudio API (not computed), so == is safe for Float32.

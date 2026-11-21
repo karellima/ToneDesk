@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		140F6FF7C7CD8F6C1D73121E /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 75DA616DEB24648C4BDE9092 /* KeyboardShortcuts */; };
 		7980FFE92F261AA200AF5F85 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 79SPARK012F0600000008D52 /* Sparkle */; };
-		7988AE522F1CC55900E6D086 /* fineTuneIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 7988AE512F1CC55900E6D086 /* fineTuneIcon.icon */; };
 		79B1000B2F35000000000002 /* IOBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 79B1000A2F35000000000001 /* IOBluetooth.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		79C80E5A2F12FF510021442B /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 79SNAP0012F0600000008D52A /* SnapshotTesting */; };
 		79FLUID0012F0600000008D52 /* FluidMenuBarExtra in Frameworks */ = {isa = PBXBuildFile; productRef = 79FLUID0022F0600000008D52 /* FluidMenuBarExtra */; };
@@ -34,8 +33,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		7988AE512F1CC55900E6D086 /* fineTuneIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = fineTuneIcon.icon; sourceTree = "<group>"; };
-		79A607AF2F05C9E00008D52A /* FineTune.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FineTune.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		79A607AF2F05C9E00008D52A /* ToneDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ToneDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		79A607BC2F05C9E10008D52A /* FineTuneTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FineTuneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		79A607C62F05C9E10008D52A /* FineTuneUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FineTuneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		79B1000A2F35000000000001 /* IOBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOBluetooth.framework; path = System/Library/Frameworks/IOBluetooth.framework; sourceTree = SDKROOT; };
@@ -105,7 +103,6 @@
 				79A607BF2F05C9E10008D52A /* FineTuneTests */,
 				79A607C92F05C9E10008D52A /* FineTuneUITests */,
 				79A607B02F05C9E00008D52A /* Products */,
-				7988AE512F1CC55900E6D086 /* fineTuneIcon.icon */,
 				795C94762F4FF3BC004F0492 /* Recovered References */,
 			);
 			sourceTree = "<group>";
@@ -113,7 +110,7 @@
 		79A607B02F05C9E00008D52A /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				79A607AF2F05C9E00008D52A /* FineTune.app */,
+				79A607AF2F05C9E00008D52A /* ToneDesk.app */,
 				79A607BC2F05C9E10008D52A /* FineTuneTests.xctest */,
 				79A607C62F05C9E10008D52A /* FineTuneUITests.xctest */,
 			);
@@ -145,7 +142,7 @@
 				75DA616DEB24648C4BDE9092 /* KeyboardShortcuts */,
 			);
 			productName = FineTune;
-			productReference = 79A607AF2F05C9E00008D52A /* FineTune.app */;
+			productReference = 79A607AF2F05C9E00008D52A /* ToneDesk.app */;
 			productType = "com.apple.product-type.application";
 		};
 		79A607BB2F05C9E10008D52A /* FineTuneTests */ = {
@@ -249,7 +246,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7988AE522F1CC55900E6D086 /* fineTuneIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,31 +426,33 @@
 		79A607D12F05C9E10008D52A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = fineTuneIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FineTune/FineTune.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = "";
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FineTune/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ToneDesk;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Karel Cristian";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D ENABLE_TCC_SPI";
-				PRODUCT_BUNDLE_IDENTIFIER = com.finetuneapp.FineTune;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.karel.ToneDesk;
+				PRODUCT_MODULE_NAME = FineTune;
+				PRODUCT_NAME = ToneDesk;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -468,31 +466,33 @@
 		79A607D22F05C9E10008D52A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = fineTuneIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FineTune/FineTune.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = "";
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FineTune/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ToneDesk;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Karel Cristian";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D ENABLE_TCC_SPI";
-				PRODUCT_BUNDLE_IDENTIFIER = com.finetuneapp.FineTune;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.karel.ToneDesk;
+				PRODUCT_MODULE_NAME = FineTune;
+				PRODUCT_NAME = ToneDesk;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -521,7 +521,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FineTune.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FineTune";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ToneDesk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ToneDesk";
 			};
 			name = Debug;
 		};
@@ -543,7 +543,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FineTune.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FineTune";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ToneDesk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ToneDesk";
 			};
 			name = Release;
 		};

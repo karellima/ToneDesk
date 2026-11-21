@@ -21,6 +21,14 @@ struct ProfilesTab: View {
 
     private var library: AutoEQLibrary { audioEngine.autoEQLibrary }
 
+    private var activeOutputSampleRate: Double {
+        guard let uid = audioEngine.autoEQTargetDeviceUID,
+              let dev = audioEngine.deviceMonitor.device(for: uid),
+              let rate = try? dev.id.readNominalSampleRate(),
+              rate > 0 else { return 48_000 }
+        return rate
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             toolbar
@@ -120,6 +128,21 @@ struct ProfilesTab: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
             }
+            if ab.isConfigured,
+               let idA = ab.profileA, let idB = ab.profileB,
+               let profA = audioEngine.autoEQProfileManager.profile(for: idA),
+               let profB = audioEngine.autoEQProfileManager.profile(for: idB) {
+                SettingsRowDivider()
+                FrequencyResponseGraphView(
+                    primaryCurve: FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate),
+                    secondaryCurve: FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate),
+                    primaryLabel: "A: \(profA.name)",
+                    secondaryLabel: "B: \(profB.name)",
+                    height: 92
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
         }
     }
 
@@ -201,6 +224,7 @@ struct ProfilesTab: View {
                 }
                 .buttonStyle(.plain)
                 .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+                .accessibilityLabel(isFavorite ? "Remove \(profile.name) from favorites" : "Add \(profile.name) to favorites")
 
                 if editingID == profile.id {
                     TextField("Name", text: $draftName)
@@ -236,6 +260,7 @@ struct ProfilesTab: View {
                 }
                 .buttonStyle(.plain)
                 .help("Show filters")
+                .accessibilityLabel(expandedIDs.contains(profile.id) ? "Hide filters for \(profile.name)" : "Show filters for \(profile.name)")
             }
             if expandedIDs.contains(profile.id) {
                 filterTable(profile)
@@ -270,16 +295,24 @@ struct ProfilesTab: View {
     }
 
     private func filterTable(_ profile: AutoEQProfile) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(String(format: "Preamp %.1f dB", profile.preampDB))
-            ForEach(Array(profile.filters.enumerated()), id: \.offset) { index, filter in
-                Text(Self.describe(filter, index: index + 1))
+        VStack(alignment: .leading, spacing: 6) {
+            FrequencyResponseGraphView(
+                primaryCurve: FrequencyResponseCurve.evaluate(profile: profile, sampleRate: activeOutputSampleRate),
+                height: 88
+            )
+            .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(String(format: "Preamp %.1f dB", profile.preampDB))
+                ForEach(Array(profile.filters.enumerated()), id: \.offset) { index, filter in
+                    Text(Self.describe(filter, index: index + 1))
+                }
             }
+            .font(.system(size: 11).monospaced())
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
         }
-        .font(.system(size: 11).monospaced())
-        .foregroundStyle(.secondary)
         .padding(.leading, 28)
-        .textSelection(.enabled)
     }
 
     static func describe(_ filter: AutoEQFilter, index: Int) -> String {
@@ -344,21 +377,27 @@ struct ProfilesTab: View {
         panel.allowedContentTypes = [.plainText, .folder]
         panel.message = "Choose ParametricEQ.txt files or folders"
         panel.prompt = "Import"
-        guard panel.runModal() == .OK else { return }
-        importURLs(panel.urls)
+        presentPanel(panel) { urls in
+            guard !urls.isEmpty else { return }
+            importURLs(urls)
+        }
     }
 
     private func presentExportPanel() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.zip]
         let date = Date().formatted(.iso8601.year().month().day())
-        panel.nameFieldStringValue = "FineTune Profiles \(date).zip"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try audioEngine.exportLibraryBackup(to: url)
-            show("Exported \(library.profiles.count) profiles to \(url.lastPathComponent)", error: false)
-        } catch {
-            show("Export failed: \(error.localizedDescription)", error: true)
+        panel.nameFieldStringValue = "ToneDesk Profiles \(date).zip"
+        presentSavePanel(panel) { url in
+            let count = library.profiles.count
+            Task { @MainActor in
+                do {
+                    try await audioEngine.exportLibraryBackup(to: url)
+                    show("Exported \(count) profiles to \(url.lastPathComponent)", error: false)
+                } catch {
+                    show("Export failed: \(error.localizedDescription)", error: true)
+                }
+            }
         }
     }
 
@@ -367,14 +406,51 @@ struct ProfilesTab: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.allowedContentTypes = [.zip, .folder]
-        panel.message = "Choose a FineTune profile backup (.zip or folder)"
+        panel.message = "Choose a ToneDesk profile backup (.zip or folder)"
         panel.prompt = "Restore"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let summary = try audioEngine.importLibraryBackup(from: url)
-            show("Restore: " + summary.message, error: false)
-        } catch {
-            show("Restore failed: \(error.localizedDescription)", error: true)
+        presentPanel(panel) { urls in
+            guard let url = urls.first else { return }
+            Task { @MainActor in
+                do {
+                    let summary = try await audioEngine.importLibraryBackup(from: url)
+                    show("Restore: " + summary.message, error: false)
+                } catch {
+                    show("Restore failed: \(error.localizedDescription)", error: true)
+                }
+            }
+        }
+    }
+
+    private var settingsSheetHostWindow: NSWindow? {
+        WindowFrontPresenter.settingsWindow
+            ?? NSApp.windows.first(where: { $0.title == "ToneDesk Settings" && $0.isVisible })
+    }
+
+    private func presentPanel(_ panel: NSOpenPanel, onConfirm: @escaping ([URL]) -> Void) {
+        if let host = settingsSheetHostWindow {
+            WindowFrontPresenter.bringToFront(host)
+            panel.beginSheetModal(for: host) { response in
+                guard response == .OK else { return }
+                onConfirm(panel.urls)
+            }
+        } else {
+            WindowFrontPresenter.bringPanelToFront(panel)
+            guard panel.runModal() == .OK else { return }
+            onConfirm(panel.urls)
+        }
+    }
+
+    private func presentSavePanel(_ panel: NSSavePanel, onConfirm: @escaping (URL) -> Void) {
+        if let host = settingsSheetHostWindow {
+            WindowFrontPresenter.bringToFront(host)
+            panel.beginSheetModal(for: host) { response in
+                guard response == .OK, let url = panel.url else { return }
+                onConfirm(url)
+            }
+        } else {
+            WindowFrontPresenter.bringPanelToFront(panel)
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            onConfirm(url)
         }
     }
 }

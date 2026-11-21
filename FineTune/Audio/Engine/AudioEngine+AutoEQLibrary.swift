@@ -68,41 +68,44 @@ extension AudioEngine {
     func setAutoEQABProfile(_ profileID: String?, slot: AutoEQABSettings.Slot) {
         var ab = settingsManager.autoEQAB
         switch slot {
-        case .a: ab.profileA = profileID
-        case .b: ab.profileB = profileID
+        case .a:
+            ab.profileA = profileID
+            if let profileID, ab.profileB == profileID { ab.profileB = nil }
+        case .b:
+            ab.profileB = profileID
+            if let profileID, ab.profileA == profileID { ab.profileA = nil }
         }
         settingsManager.autoEQAB = ab
-        reapplyAutoEQForActiveDevice()
+        applyAutoEQToAllTaps()
     }
 
     func setAutoEQABLevelMatch(_ enabled: Bool) {
         var ab = settingsManager.autoEQAB
         ab.levelMatch = enabled
         settingsManager.autoEQAB = ab
-        reapplyAutoEQForActiveDevice()
+        applyAutoEQToAllTaps()
     }
 
     /// Switches to the other A/B slot and applies it to the target device.
-    /// If the device is not currently on A or B, starts with A.
+    /// If the device is not currently actively playing A or B, starts with A.
     @discardableResult
     func toggleAutoEQAB() -> AutoEQABSettings.Slot? {
         var ab = settingsManager.autoEQAB
         guard ab.isConfigured else { return nil }
-        let currentID = activeAutoEQProfile?.id
-        if currentID == ab.profileA || currentID == ab.profileB {
-            ab.active = ab.active == .a ? .b : .a
-        } else {
-            ab.active = .a
+        switch activeAutoEQABSlot {
+        case .a: ab.active = .b
+        case .b: ab.active = .a
+        case nil: ab.active = .a
         }
         settingsManager.autoEQAB = ab
         selectAutoEQProfileForActiveDevice(ab.activeProfileID)
         return ab.active
     }
 
-    /// Which A/B slot is playing on the target device, if any.
+    /// Which A/B slot is actively playing on the target device, if any.
     var activeAutoEQABSlot: AutoEQABSettings.Slot? {
         let ab = settingsManager.autoEQAB
-        guard ab.isConfigured, let id = activeAutoEQProfile?.id else { return nil }
+        guard ab.isConfigured, isActiveAutoEQEnabled, let id = activeAutoEQProfile?.id else { return nil }
         if id == ab.profileA { return .a }
         if id == ab.profileB { return .b }
         return nil
@@ -132,24 +135,25 @@ extension AudioEngine {
         return result
     }
 
-    private func reapplyAutoEQForActiveDevice() {
-        guard let uid = autoEQTargetDeviceUID else { return }
-        applyAutoEQToTaps(for: uid)
-    }
-
     // MARK: - Library edits that affect assignments
 
     /// Deletes a library profile and clears every assignment that used it.
     func deleteLibraryProfile(id: String) {
+        let wasAB = settingsManager.autoEQAB.profileA == id || settingsManager.autoEQAB.profileB == id
         let affected = deviceMonitor.outputDevices
             .map(\.uid)
             .filter { resolvedAutoEQSelection(for: $0, persist: false)?.profileID == id }
         autoEQLibrary.delete(id: id)
         settingsManager.removeAutoEQSelections(profileID: id)
-        for uid in affected { applyAutoEQToTaps(for: uid) }
+        if wasAB {
+            // Clearing an A/B slot removes level-match trims on the remaining slot too.
+            applyAutoEQToAllTaps()
+        } else {
+            for uid in affected { applyAutoEQToTaps(for: uid) }
+        }
     }
 
-    /// Renames a library profile and refreshes taps playing it (name only; no audio change).
+    /// Renames a library profile on disk and in memory (name only; no audio change).
     @discardableResult
     func renameLibraryProfile(id: String, to name: String) -> Bool {
         autoEQLibrary.rename(id: id, to: name)
@@ -166,14 +170,14 @@ extension AudioEngine {
     }
 
     /// Restores a library backup and its favorites.
-    func importLibraryBackup(from url: URL) throws -> AutoEQImportSummary {
-        let result = try autoEQLibrary.importBackup(from: url)
+    func importLibraryBackup(from url: URL) async throws -> AutoEQImportSummary {
+        let result = try await autoEQLibrary.importBackup(from: url)
         for id in result.favoriteIDs { settingsManager.favoriteAutoEQProfile(id: id) }
         return result.summary
     }
 
-    func exportLibraryBackup(to url: URL) throws {
-        try autoEQLibrary.exportBackup(to: url, favoriteIDs: settingsManager.favoriteAutoEQProfileIDs)
+    func exportLibraryBackup(to url: URL) async throws {
+        try await autoEQLibrary.exportBackup(to: url, favoriteIDs: settingsManager.favoriteAutoEQProfileIDs)
     }
 }
 extension AudioEngine: AutoEQShortcutHandling {}

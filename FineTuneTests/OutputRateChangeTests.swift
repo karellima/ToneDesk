@@ -37,4 +37,18 @@ struct OutputRateChangeTests {
         // After the window passes the device is handled again.
         do { let allowed = throttle.allow("flappy", now: start.addingTimeInterval(14)); #expect(allowed) }
     }
+
+    @Test("Throttle reports remaining wait time for deferred recovery")
+    func throttleNextAllowedDelay() {
+        var throttle = AudioDeviceMonitor.RateChangeThrottle(limit: 2, window: 10)
+        let start = Date()
+        let first = throttle.allow("dac", now: start)
+        let second = throttle.allow("dac", now: start.addingTimeInterval(1))
+        let third = throttle.allow("dac", now: start.addingTimeInterval(3))
+        #expect(first)
+        #expect(second)
+        #expect(!third)
+        let delay = throttle.nextAllowedDelay(for: "dac", now: start.addingTimeInterval(3))
+        #expect(abs(delay - 7.0) < 0.01)
+    }
 }

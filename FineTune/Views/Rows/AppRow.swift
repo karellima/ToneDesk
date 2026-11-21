@@ -31,6 +31,8 @@ struct AppRow: View {
     let onSavePreset: (String, EQSettings) -> Void
     let onDeleteUserPreset: (UUID) -> Void
     let onRenameUserPreset: (UUID, String) -> Void
+    let appBalance: Float
+    let onBalanceChange: ((Float) -> Void)?
     let isEQExpanded: Bool
     let onEQToggle: () -> Void
     let isFocused: Bool
@@ -66,6 +68,8 @@ struct AppRow: View {
         onSavePreset: @escaping (String, EQSettings) -> Void = { _, _ in },
         onDeleteUserPreset: @escaping (UUID) -> Void = { _ in },
         onRenameUserPreset: @escaping (UUID, String) -> Void = { _, _ in },
+        appBalance: Float = 0.0,
+        onBalanceChange: ((Float) -> Void)? = nil,
         isEQExpanded: Bool = false,
         onEQToggle: @escaping () -> Void = {},
         isFocused: Bool = false
@@ -97,6 +101,8 @@ struct AppRow: View {
         self.onSavePreset = onSavePreset
         self.onDeleteUserPreset = onDeleteUserPreset
         self.onRenameUserPreset = onRenameUserPreset
+        self.appBalance = appBalance
+        self.onBalanceChange = onBalanceChange
         self.isEQExpanded = isEQExpanded
         self.onEQToggle = onEQToggle
         self.isFocused = isFocused
@@ -139,17 +145,34 @@ struct AppRow: View {
                         .lineLimit(1)
                         .help(app.name)
 
-                    if let subtitle = DevicePicker.routingSubtitle(
+                    let routingSubtitle = DevicePicker.routingSubtitle(
                         devices: devices,
                         selectedDeviceUID: selectedDeviceUID,
                         selectedDeviceUIDs: selectedDeviceUIDs,
                         isFollowingDefault: isFollowingDefault,
                         mode: deviceSelectionMode
-                    ) {
-                        Text(subtitle)
-                            .font(.system(size: 9))
-                            .foregroundStyle(DesignTokens.Colors.textTertiary)
-                            .lineLimit(1)
+                    )
+                    let balanceBadge = BalanceSliderRow.compactBadge(for: appBalance)
+                    if routingSubtitle != nil || balanceBadge != nil {
+                        HStack(spacing: 4) {
+                            if let routingSubtitle {
+                                Text(routingSubtitle)
+                                    .font(DesignTokens.Typography.cardSource)
+                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
+                                    .lineLimit(1)
+                            }
+                            if let balanceBadge {
+                                Text(balanceBadge)
+                                    .font(DesignTokens.Typography.eqLabel)
+                                    .foregroundStyle(DesignTokens.Colors.accentPrimary)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 0.5)
+                                    .background(
+                                        Capsule().fill(DesignTokens.Colors.accentPrimary.opacity(0.16))
+                                    )
+                                    .accessibilityLabel("Balance \(BalanceSliderRow.label(for: appBalance))")
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,7 +221,9 @@ struct AppRow: View {
                 },
                 onSavePreset: onSavePreset,
                 onDeleteUserPreset: onDeleteUserPreset,
-                onRenameUserPreset: onRenameUserPreset
+                onRenameUserPreset: onRenameUserPreset,
+                appBalance: appBalance,
+                onBalanceChange: onBalanceChange
             )
             .padding(.top, DesignTokens.Spacing.sm)
         }

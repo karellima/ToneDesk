@@ -103,6 +103,13 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
             history[uid] = recent
             return true
         }
+
+        /// Seconds until the oldest recorded change for `uid` leaves the window,
+        /// allowing a deferred recovery check after a flapping burst settles.
+        func nextAllowedDelay(for uid: String, now: Date = Date()) -> TimeInterval {
+            guard let oldest = history[uid]?.first else { return 0 }
+            return max(0, window - now.timeIntervalSince(oldest))
+        }
     }
 
     func start() {
@@ -334,11 +341,12 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
         }
     }
 
-    /// 150 ms debounce — the HAL fires several nominal-rate notifications while a rate settles.
-    private func scheduleSampleRateCheck(forDeviceID deviceID: AudioDeviceID, uid: String) {
+    /// Debounces nominal-rate notifications (150 ms by default) so rapid HAL settlement bursts
+    /// coalesce into a single check; also reused for deferred recovery after throttling.
+    private func scheduleSampleRateCheck(forDeviceID deviceID: AudioDeviceID, uid: String, delay: Duration = .milliseconds(150)) {
         sampleRateDebounce[deviceID]?.cancel()
         sampleRateDebounce[deviceID] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             self.checkSampleRateThreshold(forDeviceID: deviceID, uid: uid)
         }
@@ -354,12 +362,18 @@ final class AudioDeviceMonitor: AudioDeviceProviding {
 
         let oldRate = lastKnownSampleRates[deviceID] ?? 0
         guard Self.isMeaningfulRateChange(oldRate: oldRate, newRate: newRate) else { return }
-        lastKnownSampleRates[deviceID] = newRate
 
+        // Check throttle BEFORE advancing `lastKnownSampleRates`. If we updated the baseline
+        // while dropping the notification, the tap would remain stuck at `oldRate` forever once
+        // the device settled at `newRate`. Instead, keep `oldRate` and schedule one recovery
+        // re-check when the throttle window opens.
         guard rateChangeThrottle.allow(uid) else {
-            logger.warning("[RATE] Output device \(uid, privacy: .public) is changing rate repeatedly — ignoring until it settles")
+            let wait = rateChangeThrottle.nextAllowedDelay(for: uid) + 0.1
+            logger.warning("[RATE] Output device \(uid, privacy: .public) is changing rate repeatedly — deferring recovery check by \(wait, format: .fixed(precision: 1)) s")
+            scheduleSampleRateCheck(forDeviceID: deviceID, uid: uid, delay: .seconds(wait))
             return
         }
+        lastKnownSampleRates[deviceID] = newRate
         logger.info("[RATE] Output device \(uid, privacy: .public) \(oldRate, format: .fixed(precision: 0)) → \(newRate, format: .fixed(precision: 0)) Hz")
         onOutputDeviceSampleRateChanged?(uid, newRate)
     }

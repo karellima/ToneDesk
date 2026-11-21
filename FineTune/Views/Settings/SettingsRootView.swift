@@ -10,10 +10,9 @@ struct SettingsRootView: View {
     @Bindable var mediaKeyStatus: MediaKeyStatus
     let mediaKeyMonitor: MediaKeyMonitor
     let shortcutsRegistry: ShortcutsRegistry
-    @ObservedObject var updateManager: UpdateManager
 
     enum Section: String, Hashable, CaseIterable, Identifiable {
-        case general, audio, profiles, shortcuts, updates, about
+        case general, audio, profiles, shortcuts, about
         var id: Self { self }
     }
 
@@ -53,10 +52,6 @@ struct SettingsRootView: View {
             .tabItem { Label("Shortcuts", systemImage: "command") }
             .tag(Section.shortcuts)
 
-            UpdatesTab(updateManager: updateManager)
-                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
-                .tag(Section.updates)
-
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
                 .tag(Section.about)
@@ -64,7 +59,7 @@ struct SettingsRootView: View {
         .frame(width: 720, height: 560)
         .preferredColorScheme(settings.appSettings.appearance.swiftUIColorScheme)
         .background(WindowAppearanceBridge(appearance: settings.appSettings.appearance.nsAppearance))
-        .background(WindowTitleBridge(title: "FineTune Settings"))
+        .background(WindowTitleBridge(title: "ToneDesk Settings"))
         .onAppear(perform: consumeNavigationRequest)
         .onChange(of: SettingsNavigation.shared.requestedSection) { _, _ in consumeNavigationRequest() }
     }

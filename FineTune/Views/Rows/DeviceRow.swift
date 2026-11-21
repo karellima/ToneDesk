@@ -43,11 +43,17 @@ struct DeviceRow: View {
     let onAutoEQPreampToggle: (() -> Void)?
     /// User library profiles for one-click switching in the AutoEQ popover.
     let autoEQLibraryProfiles: [AutoEQProfile]
+    let processing: DeviceAudioProcessingSettings
+    let isParametricEQActive: Bool
+    let isInspectorExpanded: Bool
+    let onToggleInspector: (() -> Void)?
+    let inspectorContent: (() -> AnyView)?
     let isFocused: Bool
     let iconOverrideSymbol: String?
 
     @State private var sliderValue: Double
     @State private var isEditing = false
+    @State private var isInfoHovered = false
     @State private var suppressSliderAutoUnmute = false
     /// Suppresses write-back when slider is being synced from a device volume change.
     /// Breaks the quantization feedback loop on USB DACs with discrete dB steps.
@@ -96,6 +102,11 @@ struct DeviceRow: View {
         autoEQPreampEnabled: Bool = true,
         onAutoEQPreampToggle: (() -> Void)? = nil,
         autoEQLibraryProfiles: [AutoEQProfile] = [],
+        processing: DeviceAudioProcessingSettings = .default,
+        isParametricEQActive: Bool = false,
+        isInspectorExpanded: Bool = false,
+        onToggleInspector: (() -> Void)? = nil,
+        inspectorContent: (() -> AnyView)? = nil,
         isFocused: Bool = false,
         iconOverrideSymbol: String? = nil
     ) {
@@ -120,25 +131,37 @@ struct DeviceRow: View {
         self.autoEQPreampEnabled = autoEQPreampEnabled
         self.onAutoEQPreampToggle = onAutoEQPreampToggle
         self.autoEQLibraryProfiles = autoEQLibraryProfiles
+        self.processing = processing
+        self.isParametricEQActive = isParametricEQActive
+        self.isInspectorExpanded = isInspectorExpanded
+        self.onToggleInspector = onToggleInspector
+        self.inspectorContent = inspectorContent
         self.isFocused = isFocused
         self.iconOverrideSymbol = iconOverrideSymbol
         self._sliderValue = State(initialValue: Self.volumeToSlider(volume, backend: volumeBackend))
     }
 
     var body: some View {
-        deviceHeader
-            .contentShape(Rectangle())
-            .onTapGesture {
-                // Whole-row tap sets this device as default. Inner controls
-                // (volume slider, mute button, AutoEQ picker, percent field)
-                // are Button/Slider/TextField subviews that capture their
-                // own gestures, so they do not propagate to this handler.
-                // Mirrors the macOS Sound submenu pattern.
-                if !isDefault {
-                    onSetDefault()
+        if onToggleInspector != nil {
+            ExpandableGlassRow(isExpanded: isInspectorExpanded, isFocused: isFocused) {
+                deviceHeader
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if !isDefault { onSetDefault() }
+                    }
+            } expandedContent: {
+                if isInspectorExpanded, let inspectorContent {
+                    inspectorContent()
                 }
             }
-            .hoverableRow(isFocused: isFocused)
+        } else {
+            deviceHeader
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !isDefault { onSetDefault() }
+                }
+                .hoverableRow(isFocused: isFocused)
+        }
     }
 
     // MARK: - Device Header
@@ -151,7 +174,7 @@ struct DeviceRow: View {
             // handles tap-to-set-default.
             DeviceBadge(icon: displayIcon, isSelected: isDefault)
 
-            // Device name + optional AutoEQ profile subtitle + AutoEQ picker
+            // Device name + optional AutoEQ profile subtitle / active badges + AutoEQ picker
             HStack(spacing: DesignTokens.Spacing.xs) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(device.name)
@@ -159,11 +182,37 @@ struct DeviceRow: View {
                         .lineLimit(1)
                         .help(device.name)
 
-                    if let subtitle = Self.autoEQSubtitle(profileName: autoEQProfileName, isEnabled: autoEQEnabled) {
-                        Text(subtitle)
-                            .font(.system(size: 9))
-                            .foregroundStyle(DesignTokens.Colors.textTertiary)
-                            .lineLimit(1)
+                    let subtitle = Self.autoEQSubtitle(profileName: autoEQProfileName, isEnabled: autoEQEnabled)
+                    let badges = (isParametricEQActive ? ["PEQ"] : []) + processing.activeBadges
+                    if subtitle != nil || !badges.isEmpty {
+                        if let subtitle, badges.count <= 1 {
+                            HStack(spacing: 4) {
+                                Text(subtitle)
+                                    .font(DesignTokens.Typography.cardSource)
+                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                ForEach(badges, id: \.self) { badge in
+                                    badgePill(badge)
+                                }
+                            }
+                        } else {
+                            if let subtitle {
+                                Text(subtitle)
+                                    .font(DesignTokens.Typography.cardSource)
+                                    .foregroundStyle(DesignTokens.Colors.textTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            if !badges.isEmpty {
+                                BadgeFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
+                                    ForEach(badges, id: \.self) { badge in
+                                        badgePill(badge)
+                                    }
+                                }
+                                .padding(.top, subtitle != nil ? 1 : 0)
+                            }
+                        }
                     }
                 }
 
@@ -190,6 +239,26 @@ struct DeviceRow: View {
                         libraryProfiles: autoEQLibraryProfiles
                     )
                 }
+
+                if let onToggleInspector {
+                    Button {
+                        onToggleInspector()
+                    } label: {
+                        Image(systemName: isInspectorExpanded ? "info.circle.fill" : "info.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(
+                                isInspectorExpanded
+                                    ? DesignTokens.Colors.interactiveActive
+                                    : (isInfoHovered ? DesignTokens.Colors.interactiveHover : DesignTokens.Colors.textTertiary)
+                            )
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isInfoHovered = $0 }
+                    .help("Device Inspector (Balance, Mono, Limit, Sample Rate)")
+                    .accessibilityLabel("Inspect \(device.name)")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -199,7 +268,8 @@ struct DeviceRow: View {
                     // Unmute: restore to default if displayed as 0%
                     if displayedPercentage == 0 {
                         suppressSliderAutoUnmute = isMuted
-                        sliderValue = defaultUnmuteVolume
+                        let target = processing.maxVolumeLimit.map { min(defaultUnmuteVolume, Double($0)) } ?? defaultUnmuteVolume
+                        sliderValue = target
                     }
                     if isMuted {
                         onMuteToggle()  // Toggle system mute
@@ -224,17 +294,25 @@ struct DeviceRow: View {
                     isUpdatingSliderFromDevice = false
                     return
                 }
-                onVolumeChange(Self.sliderToVolume(newValue, backend: volumeBackend))
+                let cappedSlider: Double
+                if let limit = processing.maxVolumeLimit, limit < 0.995, newValue > Double(limit) {
+                    cappedSlider = Double(limit)
+                    isUpdatingSliderFromDevice = true
+                    sliderValue = cappedSlider
+                } else {
+                    cappedSlider = newValue
+                }
+                onVolumeChange(Self.sliderToVolume(cappedSlider, backend: volumeBackend))
                 if suppressSliderAutoUnmute {
                     suppressSliderAutoUnmute = false
                     return
                 }
                 // Auto-unmute when slider moved while muted
-                if isMuted && newValue > 0 {
+                if isMuted && cappedSlider > 0 {
                     onMuteToggle()
                 }
             }
-            .scrollWheelStep($sliderValue, in: 0.0...1.0)
+            .scrollWheelStep($sliderValue, in: 0.0...(processing.maxVolumeLimit.map(Double.init) ?? 1.0))
 
             // Editable volume percentage
             EditablePercentage(
@@ -246,7 +324,7 @@ struct DeviceRow: View {
                 isRowFocused: isFocused
             )
         }
-        .frame(height: DesignTokens.Dimensions.rowContentHeight)
+        .frame(minHeight: DesignTokens.Dimensions.rowContentHeight)
         .onChange(of: volume) { _, newValue in
             // Only sync from external changes when user is NOT dragging
             guard !isEditing else { return }
@@ -254,6 +332,66 @@ struct DeviceRow: View {
             guard newSlider != sliderValue else { return }
             isUpdatingSliderFromDevice = true
             sliderValue = newSlider
+        }
+    }
+
+    private func badgePill(_ badge: String) -> some View {
+        Text(badge)
+            .font(DesignTokens.Typography.eqLabel)
+            .foregroundStyle(DesignTokens.Colors.accentPrimary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 0.5)
+            .background(
+                Capsule().fill(DesignTokens.Colors.accentPrimary.opacity(0.16))
+            )
+    }
+}
+
+/// Compact wrapping layout for device processing badges so pills keep their intrinsic
+/// width and wrap cleanly to a second line in Compact mode instead of truncating to "…".
+private struct BadgeFlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 4
+    var verticalSpacing: CGFloat = 2
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                y += rowHeight + verticalSpacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width
+            totalWidth = max(totalWidth, x)
+            x += horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: totalWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX {
+                y += rowHeight + verticalSpacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

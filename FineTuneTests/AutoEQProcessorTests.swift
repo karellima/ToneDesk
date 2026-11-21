@@ -137,4 +137,39 @@ struct AutoEQProcessorTests {
         }
         #expect(!buf.contains { $0.isNaN })
     }
+
+    @Test("Sample-rate hard cut mid-crossfade preempts the fade immediately")
+    func sampleRateHardCutPreemptsCrossfade() throws {
+        let a = try profile(count: 12, preamp: -3)
+        let b = try profile(count: 20, preamp: -6)
+        let p = AutoEQProcessor(sampleRate: 48000)
+        p.updateProfile(a)
+        _ = render(p, frequency: 1000, frames: 2048)
+
+        // Start a profile switch crossfade (25 ms = 1200 frames at 48 kHz), process only 256 frames
+        p.updateProfile(b)
+        var partial = [Float](repeating: 0.2, count: 256 * 2)
+        partial.withUnsafeMutableBufferPointer { buf in
+            p.process(input: UnsafePointer(buf.baseAddress!), output: buf.baseAddress!, frameCount: 256)
+        }
+
+        // Now change sample rate while still mid-crossfade; must immediately hard-cut cleanly.
+        p.updateSampleRate(96000)
+        #expect(p.sampleRate == 96000)
+        let after = render(p, frequency: 1000, frames: 4096)
+        #expect(after.allSatisfy { $0.isFinite })
+        #expect(p.activeFilterCount == 20)
+    }
+
+    @Test("Non-finite sample mid-buffer is caught and zeroed by the safety net")
+    func midBufferNaNCaught() throws {
+        let p = AutoEQProcessor(sampleRate: Self.rate)
+        p.updateProfile(try profile(count: 4, preamp: 0))
+        var buf = [Float](repeating: 0.1, count: 512 * 2)
+        buf[200] = .nan  // frame 100, left channel — not frame 0
+        buf.withUnsafeMutableBufferPointer { b in
+            p.process(input: UnsafePointer(b.baseAddress!), output: b.baseAddress!, frameCount: 512)
+        }
+        #expect(buf.allSatisfy { $0 == 0 })
+    }
 }

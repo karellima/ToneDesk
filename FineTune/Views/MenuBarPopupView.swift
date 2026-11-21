@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 struct MenuBarPopupView: View {
     @Bindable var audioEngine: AudioEngine
     @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
-    @ObservedObject var updateManager: UpdateManager
 
     let permission: AudioRecordingPermission
 
@@ -69,12 +68,21 @@ struct MenuBarPopupView: View {
     /// Editable copy of device order for drag-and-drop reordering
     @State private var editableDeviceOrder: [AudioDevice] = []
 
-    /// Device whose inline detail panel is expanded in edit mode (nil when
+    /// Device whose inline detail panel is expanded (normal or edit mode; nil when
     /// collapsed). Mirrors the `expandedRowID` pattern used for per-app EQ.
     @State private var expandedDeviceUID: String?
+    /// Transient scroll target used when expanding the inline Parametric EQ editor
+    /// so all sliders (Freq, Gain, Q) scroll smoothly above the fold in Compact mode.
+    @State private var peqScrollTargetID: String?
 
-    /// Hover state for support link heart animation
-    @State private var isSupportHovered = false
+    /// Whether the menu bar popup is currently pinned open as a floating panel.
+    @State private var isWindowPinned = false
+    /// Weak-like reference to the FluidMenuBarExtra popup NSWindow for pinning.
+    @State private var popupWindow: NSWindow?
+    /// Inline Quick Config quick-save bar visibility and draft name.
+    @State private var isSavingQuickConfig = false
+    @State private var quickConfigDraftName = ""
+    @FocusState private var isQuickConfigFieldFocused: Bool
 
     /// Namespace for device toggle animation
     @Namespace private var deviceToggleNamespace
@@ -118,10 +126,17 @@ struct MenuBarPopupView: View {
                     defaultDevicesStatus
                 }
                 Spacer()
+                quickConfigsButton
+                pinPopupButton
                 editPriorityButton
                 settingsButton
             }
             .padding(.bottom, DesignTokens.Spacing.xs)
+
+            if isSavingQuickConfig {
+                quickConfigSaveBar
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -135,6 +150,15 @@ struct MenuBarPopupView: View {
                         proxy.scrollTo(newFocus, anchor: .center)
                     }
                 }
+                .onChange(of: peqScrollTargetID) { _, targetID in
+                    guard let targetID else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                        withAnimation(DesignTokens.Animation.hover) {
+                            proxy.scrollTo(targetID, anchor: .bottom)
+                        }
+                        peqScrollTargetID = nil
+                    }
+                }
             }
         }
         .padding(popupDimensions.contentPadding)
@@ -146,8 +170,20 @@ struct MenuBarPopupView: View {
         .darkGlassBackground()
         .preferredColorScheme(audioEngine.settingsManager.appSettings.appearance.swiftUIColorScheme)
         .environment(\.appearancePreference, audioEngine.settingsManager.appSettings.appearance)
-        .onAppear {
+        .task {
             AutoEQStatusMenu.openSettingsAction = { openSettingsWindow() }
+            PinnedPopupWindowController.shared.onPinStateChanged = { pinned in
+                isWindowPinned = pinned
+                if !pinned {
+                    let stillVisible = popupWindow?.isVisible ?? false
+                    if !stillVisible {
+                        isPopupVisible = false
+                        popupVisibility.isVisible = false
+                    }
+                }
+            }
+        }
+        .onAppear {
             updateSortedDevices()
             updateSortedInputDevices()
             pairedDevices = audioEngine.bluetoothDeviceMonitor.pairedDevices
@@ -205,6 +241,8 @@ struct MenuBarPopupView: View {
             guard let window = notification.object as? NSWindow,
                   String(describing: type(of: window)).contains("FluidMenuBarExtra")
             else { return }
+            popupWindow = window
+            isWindowPinned = PinnedPopupWindowController.shared.isPinned
             isPopupVisible = true
             popupVisibility.isVisible = true
             audioEngine.bluetoothDeviceMonitor.refresh()
@@ -218,8 +256,10 @@ struct MenuBarPopupView: View {
             guard let window = notification.object as? NSWindow,
                   String(describing: type(of: window)).contains("FluidMenuBarExtra")
             else { return }
-            isPopupVisible = false
-            popupVisibility.isVisible = false
+            if !PinnedPopupWindowController.shared.isPinned {
+                isPopupVisible = false
+                popupVisibility.isVisible = false
+            }
             hasKeyboardEngaged = false
             selectedRow = nil
         }
@@ -252,6 +292,134 @@ struct MenuBarPopupView: View {
                 .keyboardShortcut(.escape, modifiers: [])
                 .hidden()
         }
+    }
+
+    // MARK: - Quick Configs & Pin Buttons
+
+    private var quickConfigsButton: some View {
+        let scenes = audioEngine.quickConfigs
+        let activeID = audioEngine.activeQuickConfigID
+        return Menu {
+            if scenes.isEmpty {
+                Text("No Quick Configs saved yet")
+            } else {
+                ForEach(scenes) { scene in
+                    Toggle(isOn: Binding(
+                        get: { scene.id == activeID },
+                        set: { _ in audioEngine.applyQuickConfig(id: scene.id) }
+                    )) {
+                        Text(scene.name)
+                    }
+                }
+            }
+            Divider()
+            Button {
+                quickConfigDraftName = ""
+                withAnimation(DesignTokens.Animation.quick) {
+                    isSavingQuickConfig = true
+                }
+                Task { @MainActor in
+                    isQuickConfigFieldFocused = true
+                }
+            } label: {
+                Label("Save Current Setup…", systemImage: "plus")
+            }
+            if let active = audioEngine.activeQuickConfig {
+                Button {
+                    audioEngine.updateQuickConfig(id: active.id)
+                } label: {
+                    Label("Update “\(active.name)”", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+        } label: {
+            Image(systemName: activeID != nil ? "square.stack.3d.up.fill" : "square.stack.3d.up")
+                .font(.system(size: 12))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(activeID != nil ? DesignTokens.Colors.accentPrimary : DesignTokens.Colors.interactiveDefault)
+                .frame(
+                    minWidth: DesignTokens.Dimensions.minTouchTarget,
+                    minHeight: DesignTokens.Dimensions.minTouchTarget
+                )
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(audioEngine.activeQuickConfig.map { "Last applied: \($0.name)" } ?? "Quick Configs")
+        .accessibilityLabel(audioEngine.activeQuickConfig.map { "Quick Configs, last applied \($0.name)" } ?? "Quick Configs")
+    }
+
+    private var quickConfigSaveBar: some View {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 11))
+                .foregroundStyle(DesignTokens.Colors.accentPrimary)
+            TextField("Quick Config name (e.g. Music, Calls)", text: $quickConfigDraftName)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .focused($isQuickConfigFieldFocused)
+                .onSubmit { commitSaveQuickConfig() }
+                .onExitCommand { cancelSaveQuickConfig() }
+            Button("Save") { commitSaveQuickConfig() }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(
+                    quickConfigDraftName.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? DesignTokens.Colors.textTertiary
+                        : DesignTokens.Colors.accentPrimary
+                )
+                .disabled(quickConfigDraftName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button {
+                cancelSaveQuickConfig()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(DesignTokens.Colors.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel")
+            .accessibilityLabel("Cancel saving Quick Config")
+        }
+        .padding(.horizontal, DesignTokens.Spacing.sm)
+        .padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesignTokens.Colors.recessedBackground)
+        }
+    }
+
+    private func commitSaveQuickConfig() {
+        let trimmed = quickConfigDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        audioEngine.saveQuickConfig(name: trimmed)
+        cancelSaveQuickConfig()
+    }
+
+    private func cancelSaveQuickConfig() {
+        withAnimation(DesignTokens.Animation.quick) {
+            isSavingQuickConfig = false
+        }
+        quickConfigDraftName = ""
+        anchorFocused = true
+    }
+
+    private var pinPopupButton: some View {
+        Button(isWindowPinned ? "Unpin window" : "Pin window open",
+               systemImage: isWindowPinned ? "pin.fill" : "pin") {
+            let target = popupWindow ?? PinnedPopupWindowController.locatePopupWindow()
+            isWindowPinned = PinnedPopupWindowController.shared.togglePin(window: target)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.plain)
+        .font(.system(size: 12))
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(isWindowPinned ? DesignTokens.Colors.accentPrimary : DesignTokens.Colors.interactiveDefault)
+        .frame(
+            minWidth: DesignTokens.Dimensions.minTouchTarget,
+            minHeight: DesignTokens.Dimensions.minTouchTarget
+        )
+        .contentShape(Rectangle())
+        .help(isWindowPinned ? "Unpin floating window" : "Pin popup open as floating window")
     }
 
     // MARK: - Edit Priority Button
@@ -306,6 +474,10 @@ struct MenuBarPopupView: View {
             textEntry.buffer = nil
             return
         }
+        if isSavingQuickConfig {
+            cancelSaveQuickConfig()
+            return
+        }
         if expandedDeviceUID != nil {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 expandedDeviceUID = nil
@@ -317,6 +489,11 @@ struct MenuBarPopupView: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 expandedRowID = nil
             }
+        } else if PinnedPopupWindowController.shared.isPinned {
+            PinnedPopupWindowController.shared.unpin(dismiss: true)
+            isWindowPinned = false
+            isPopupVisible = false
+            popupVisibility.isVisible = false
         } else {
             NSApp.keyWindow?.resignKey()
         }
@@ -324,9 +501,10 @@ struct MenuBarPopupView: View {
 
     private func openSettingsWindow() {
         exitEditModeSaving()
-        NSApp.keyWindow?.resignKey()
+        let popupWindow = NSApp.keyWindow
         NSApp.activate(ignoringOtherApps: true)
         openSettings()
+        WindowFrontPresenter.bringSettingsToFront(dismissing: popupWindow)
     }
 
     // MARK: - Main Content
@@ -346,23 +524,11 @@ struct MenuBarPopupView: View {
             Divider()
                 .padding(.vertical, DesignTokens.Spacing.xs)
 
-            // Footer: support link + quit
+            // Footer: app name + quit
             HStack {
-                Button {
-                    NSWorkspace.shared.open(DesignTokens.Links.support)
-                } label: {
-                    Label("Donate", systemImage: isSupportHovered ? "heart.fill" : "heart")
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isSupportHovered ? Color(nsColor: .systemPink) : DesignTokens.Colors.textTertiary)
-                .onHover { hovering in
-                    withAnimation(DesignTokens.Animation.hover) {
-                        isSupportHovered = hovering
-                    }
-                }
-                .accessibilityLabel("Donate to FineTune")
-                .help("Donate to FineTune")
+                Text("ToneDesk")
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Colors.textTertiary)
 
                 Spacer()
 
@@ -379,8 +545,8 @@ struct MenuBarPopupView: View {
                 .font(DesignTokens.Typography.caption)
                 .foregroundStyle(DesignTokens.Colors.textSecondary)
                 .glassButtonStyle()
-                .accessibilityLabel("Quit FineTune")
-                .help("Quit FineTune (⌘Q)")
+                .accessibilityLabel("Quit ToneDesk")
+                .help("Quit ToneDesk (⌘Q)")
             }
         }
     }
@@ -463,6 +629,7 @@ struct MenuBarPopupView: View {
             }
             .buttonStyle(.plain)
             .help("Output Devices")
+            .accessibilityLabel("Output Devices")
 
             // Input (mic) button
             Button {
@@ -486,6 +653,7 @@ struct MenuBarPopupView: View {
             }
             .buttonStyle(.plain)
             .help("Input Devices")
+            .accessibilityLabel("Input Devices")
         }
         .padding(3)
         .background(
@@ -620,6 +788,55 @@ struct MenuBarPopupView: View {
                             audioEngine.setAutoEQPreampEnabled(!audioEngine.autoEQPreampEnabled)
                         },
                         autoEQLibraryProfiles: audioEngine.autoEQLibrary.profiles,
+                        processing: audioEngine.getDeviceAudioProcessing(for: device.uid),
+                        isParametricEQActive: audioEngine.getDeviceParametricEQ(for: device.uid).isEffectivelyActive,
+                        isInspectorExpanded: expandedDeviceUID == device.uid,
+                        onToggleInspector: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                expandedDeviceUID = (expandedDeviceUID == device.uid) ? nil : device.uid
+                            }
+                        },
+                        inspectorContent: {
+                            let activeBaseAutoEQ: AutoEQProfile? = {
+                                guard let sel = selection, sel.isEnabled else { return nil }
+                                return audioEngine.autoEQProfileManager.profile(for: sel.profileID)
+                            }()
+                            return AnyView(
+                                DeviceDetailSheet(
+                                    device: device,
+                                    transportType: device.id.readTransportType(),
+                                    autoDetectedTier: deviceVolumeMonitor.autoDetectedOutputVolumeBackend(for: device.id),
+                                    currentOverride: audioEngine.settingsManager.getDeviceVolumeTierOverride(for: device.uid),
+                                    onOverrideChange: { newTier in
+                                        audioEngine.settingsManager.setDeviceVolumeTierOverride(for: device.uid, to: newTier)
+                                        deviceVolumeMonitor.applyTierOverrideChange(for: device.id)
+                                    },
+                                    processing: audioEngine.getDeviceAudioProcessing(for: device.uid),
+                                    onProcessingChange: { updated in
+                                        audioEngine.setDeviceAudioProcessing(for: device.uid, to: updated)
+                                    },
+                                    parametricEQ: audioEngine.getDeviceParametricEQ(for: device.uid),
+                                    baseAutoEQ: activeBaseAutoEQ,
+                                    onParametricEQChange: { updated in
+                                        audioEngine.setDeviceParametricEQ(for: device.uid, to: updated)
+                                    },
+                                    onSavePEQToLibrary: { name, text in
+                                        let safeName = name
+                                            .replacingOccurrences(of: "/", with: "-")
+                                            .replacingOccurrences(of: ":", with: "-")
+                                        let tmp = FileManager.default.temporaryDirectory
+                                            .appendingPathComponent("\(safeName).txt")
+                                        try? text.write(to: tmp, atomically: true, encoding: .utf8)
+                                        _ = audioEngine.importIntoLibrary([tmp])
+                                        try? FileManager.default.removeItem(at: tmp)
+                                    },
+                                    onEditEQExpanded: {
+                                        peqScrollTargetID = "peq-editor-\(device.uid)"
+                                    },
+                                    onDismiss: {}
+                                )
+                            )
+                        },
                         isFocused: hasKeyboardEngaged && selectedRow == .device(uid: device.uid),
                         iconOverrideSymbol: audioEngine.settingsManager.getDeviceIconOverride(for: device.uid)
                     )
@@ -684,6 +901,10 @@ struct MenuBarPopupView: View {
                 // Only render when actually expanded. Input devices skip
                 // the expand, so this is never hit for them.
                 if !showingInputDevices && expandedDeviceUID == device.uid {
+                    let editBaseAutoEQ: AutoEQProfile? = {
+                        guard let sel = audioEngine.getAutoEQSelection(for: device.uid), sel.isEnabled else { return nil }
+                        return audioEngine.autoEQProfileManager.profile(for: sel.profileID)
+                    }()
                     DeviceDetailSheet(
                         device: device,
                         transportType: device.id.readTransportType(),
@@ -692,6 +913,15 @@ struct MenuBarPopupView: View {
                         onOverrideChange: { newTier in
                             audioEngine.settingsManager.setDeviceVolumeTierOverride(for: device.uid, to: newTier)
                             deviceVolumeMonitor.applyTierOverrideChange(for: device.id)
+                        },
+                        processing: audioEngine.getDeviceAudioProcessing(for: device.uid),
+                        onProcessingChange: { updated in
+                            audioEngine.setDeviceAudioProcessing(for: device.uid, to: updated)
+                        },
+                        parametricEQ: audioEngine.getDeviceParametricEQ(for: device.uid),
+                        baseAutoEQ: editBaseAutoEQ,
+                        onParametricEQChange: { updated in
+                            audioEngine.setDeviceParametricEQ(for: device.uid, to: updated)
                         },
                         onDismiss: {}
                     )
@@ -920,6 +1150,10 @@ struct MenuBarPopupView: View {
                 },
                 onRenameUserPreset: { id, newName in
                     audioEngine.settingsManager.updateUserPreset(id: id, name: newName)
+                },
+                appBalance: audioEngine.getBalance(for: app),
+                onBalanceChange: { newBalance in
+                    audioEngine.setBalance(for: app, to: newBalance)
                 },
                 isEQExpanded: expandedRowID == displayableApp.id,
                 onEQToggle: {
@@ -1164,8 +1398,7 @@ struct MenuBarPopupView: View {
 
     /// Opens a file panel to import a ParametricEQ.txt for a device
     private func importAutoEQFile(for deviceUID: String) {
-        // Dismiss the main popup so the file picker isn't obscured
-        NSApp.keyWindow?.resignKey()
+        let popupWindow = NSApp.keyWindow
 
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType.plainText, UTType.folder]
@@ -1188,6 +1421,8 @@ struct MenuBarPopupView: View {
                     message = "\(failure.fileName): \(failure.message)"
                 } else if summary.imported.isEmpty, !summary.duplicates.isEmpty {
                     message = "Already in your library."
+                } else if summary.imported.isEmpty, summary.failures.isEmpty {
+                    message = "No .txt files found in the selection."
                 } else {
                     message = summary.message + " — pick one below or manage them in Settings › Profiles."
                 }
@@ -1201,6 +1436,10 @@ struct MenuBarPopupView: View {
                     }
                 }
             }
+        }
+        WindowFrontPresenter.bringPanelToFront(panel)
+        if let popupWindow, popupWindow !== panel {
+            popupWindow.resignKey()
         }
     }
 

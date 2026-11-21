@@ -15,11 +15,12 @@ protocol AudioEngineDispatching: AnyObject {
     func isAudibleNow(bundleID: String) -> Bool
 }
 
-/// Receives AutoEQ library shortcuts (implemented by `AudioEngine`).
+/// Receives AutoEQ library and Quick Config shortcuts (implemented by `AudioEngine`).
 @MainActor
 protocol AutoEQShortcutHandling: AnyObject {
     @discardableResult func cycleAutoEQProfile(offset: Int) -> AutoEQProfile?
     @discardableResult func toggleAutoEQAB() -> AutoEQABSettings.Slot?
+    @discardableResult func cycleQuickConfig() -> AudioScene?
 }
 
 @MainActor
@@ -109,6 +110,8 @@ final class ShortcutsRegistry {
             autoEQHandler?.cycleAutoEQProfile(offset: -1)
         case .autoEQToggleAB:
             autoEQHandler?.toggleAutoEQAB()
+        case .nextQuickConfig:
+            autoEQHandler?.cycleQuickConfig()
         }
     }
 
@@ -248,6 +251,7 @@ final class ShortcutsRegistry {
         case .autoEQNextProfile: "autoeq-next-profile"
         case .autoEQPreviousProfile: "autoeq-previous-profile"
         case .autoEQToggleAB: "autoeq-toggle-ab"
+        case .nextQuickConfig: "next-quick-config"
         }
     }
 }

@@ -9,6 +9,12 @@ struct AudioTab: View {
 
     /// Memoized sorted output devices for the system-sounds picker.
     @State private var sortedOutputDevices: [AudioDevice] = []
+    @State private var newSceneName = ""
+    @State private var newSceneIcon = "sparkles"
+    @State private var renamingSceneID: UUID?
+    @State private var renameSceneDraft = ""
+    @State private var pendingDeleteScene: AudioScene?
+    @State private var pendingOverwriteScene: AudioScene?
 
     private var unifiedLoudnessToggleBinding: Binding<Bool> {
         Binding(
@@ -27,6 +33,7 @@ struct AudioTab: View {
             VStack(alignment: .leading, spacing: 24) {
                 volumeSection
                 devicesSection
+                quickConfigsSection
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 20)
@@ -45,6 +52,42 @@ struct AudioTab: View {
         }
         .onChange(of: settings.appSettings.loudnessEqualizationEnabled) { _, newValue in
             audioEngine.setLoudnessEqualizationEnabled(newValue)
+        }
+        .confirmationDialog(
+            pendingDeleteScene.map { "Delete “\($0.name)”?" } ?? "Delete Quick Config?",
+            isPresented: Binding(
+                get: { pendingDeleteScene != nil },
+                set: { if !$0 { pendingDeleteScene = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let scene = pendingDeleteScene {
+                Button("Delete", role: .destructive) {
+                    audioEngine.deleteQuickConfig(id: scene.id)
+                    pendingDeleteScene = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDeleteScene = nil }
+        } message: {
+            Text("This Quick Config will be permanently removed.")
+        }
+        .confirmationDialog(
+            pendingOverwriteScene.map { "Update “\($0.name)”?" } ?? "Update Quick Config?",
+            isPresented: Binding(
+                get: { pendingOverwriteScene != nil },
+                set: { if !$0 { pendingOverwriteScene = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let scene = pendingOverwriteScene {
+                Button("Overwrite") {
+                    audioEngine.updateQuickConfig(id: scene.id)
+                    pendingOverwriteScene = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingOverwriteScene = nil }
+        } message: {
+            Text("This replaces the saved Quick Config with your current audio setup.")
         }
     }
 
@@ -67,7 +110,7 @@ struct AudioTab: View {
                 "Loudness Compensation",
                 description: "Boost low frequencies at low volume"
             ) {
-                Toggle("", isOn: unifiedLoudnessToggleBinding)
+                Toggle("Loudness Compensation", isOn: unifiedLoudnessToggleBinding)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
@@ -83,7 +126,7 @@ struct AudioTab: View {
                 "Lock Input Device",
                 description: "Prevent auto-switching when devices connect"
             ) {
-                Toggle("", isOn: $settings.appSettings.lockInputDevice)
+                Toggle("Lock Input Device", isOn: $settings.appSettings.lockInputDevice)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
@@ -131,6 +174,126 @@ struct AudioTab: View {
                 }
             }
         }
+    }
+
+    // MARK: - Quick Configs
+
+    private var quickConfigsSection: some View {
+        SettingsSection("Quick Configs") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Save complete snapshots of your current output, input, volumes, AutoEQ profiles, stereo processing, and app routing.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    Picker("Quick Config icon", selection: $newSceneIcon) {
+                        ForEach(AudioScene.availableIcons, id: \.self) { symbol in
+                            Image(systemName: symbol).tag(symbol)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 56)
+
+                    TextField("New Quick Config name (e.g. Music on DAC, Calls)", text: $newSceneName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { saveNewScene() }
+
+                    Button("Save Current") { saveNewScene() }
+                        .disabled(newSceneName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            let scenes = audioEngine.quickConfigs
+            if !scenes.isEmpty {
+                ForEach(scenes) { scene in
+                    SettingsRowDivider()
+                    quickConfigRow(scene)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func quickConfigRow(_ scene: AudioScene) -> some View {
+        let isActive = audioEngine.activeQuickConfigID == scene.id
+        HStack(spacing: 8) {
+            Image(systemName: scene.icon)
+                .font(.system(size: 12))
+                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .frame(width: 18)
+
+            if renamingSceneID == scene.id {
+                TextField("Name", text: $renameSceneDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .onSubmit {
+                        audioEngine.renameQuickConfig(id: scene.id, to: renameSceneDraft)
+                        renamingSceneID = nil
+                    }
+                    .onExitCommand { renamingSceneID = nil }
+            } else {
+                Text(scene.name)
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) {
+                        renameSceneDraft = scene.name
+                        renamingSceneID = scene.id
+                    }
+            }
+
+            if isActive {
+                Text("Last applied")
+                    .font(DesignTokens.Typography.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+            }
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                Button("Apply") {
+                    audioEngine.applyQuickConfig(id: scene.id)
+                }
+
+                Button("Update") {
+                    pendingOverwriteScene = scene
+                }
+                .help("Overwrite this Quick Config with your current audio setup")
+                .accessibilityLabel("Update \(scene.name)")
+
+                Button {
+                    renameSceneDraft = scene.name
+                    renamingSceneID = scene.id
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .help("Rename Quick Config")
+                .accessibilityLabel("Rename \(scene.name)")
+
+                Button(role: .destructive) {
+                    pendingDeleteScene = scene
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .help("Delete Quick Config")
+                .accessibilityLabel("Delete \(scene.name)")
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func saveNewScene() {
+        let trimmed = newSceneName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        audioEngine.saveQuickConfig(name: trimmed, icon: newSceneIcon)
+        newSceneName = ""
     }
 
     private func updateSortedDevices() {

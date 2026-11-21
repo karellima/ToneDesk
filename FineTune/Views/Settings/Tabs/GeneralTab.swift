@@ -38,9 +38,9 @@ struct GeneralTab: View {
         SettingsSection("General") {
             SettingsRow(
                 "Launch at Login",
-                description: "Start FineTune when you log in"
+                description: "Start ToneDesk when you log in"
             ) {
-                Toggle("", isOn: $settings.appSettings.launchAtLogin)
+                Toggle("Launch at Login", isOn: $settings.appSettings.launchAtLogin)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
@@ -57,7 +57,7 @@ struct GeneralTab: View {
                 "Device Disconnect Alerts",
                 description: "Show notification when an audio device disconnects"
             ) {
-                Toggle("", isOn: $settings.appSettings.showDeviceDisconnectAlerts)
+                Toggle("Device Disconnect Alerts", isOn: $settings.appSettings.showDeviceDisconnectAlerts)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
@@ -71,9 +71,39 @@ struct GeneralTab: View {
         SettingsSection("Menu Bar") {
             SettingsRow(
                 "Icon Style",
-                description: "How FineTune appears in your menu bar"
+                description: "How ToneDesk appears in your menu bar"
             ) {
                 IconStyleSegmentedControl(selection: $settings.appSettings.menuBarIconStyle)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                "Live Level Meter",
+                description: "Show a real-time audio level meter beside the menu bar icon"
+            ) {
+                Toggle("Live Level Meter", isOn: $settings.appSettings.showMenuBarMeter)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                "Show Volume Percentage",
+                description: "Display current output volume next to the icon"
+            ) {
+                Toggle("Show Volume Percentage", isOn: $settings.appSettings.showMenuBarVolumeLabel)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                "Icon Scroll & Option-Click",
+                description: "Scroll on the menu bar icon to adjust volume; Option-click or middle-click to mute"
+            ) {
+                Toggle("Icon Scroll & Option-Click", isOn: $settings.appSettings.menuBarQuickControlsEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
             }
             SettingsRowDivider()
             SettingsRow(

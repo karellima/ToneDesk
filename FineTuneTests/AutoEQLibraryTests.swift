@@ -1,4 +1,5 @@
 // FineTuneTests/AutoEQLibraryTests.swift
+import AudioToolbox
 import Foundation
 import Testing
 @testable import FineTune
@@ -126,18 +127,18 @@ struct AutoEQLibraryTests {
     }
 
     @Test("Backup .zip round-trips names, order, filters, favorites and IDs")
-    func backupRoundTrip() throws {
+    func backupRoundTrip() async throws {
         let tmp = TempDir()
         let (library, _) = makeLibrary(tmp.sub("store"))
         _ = library.importItems(at: [try makeProfileFolder(tmp)])
         library.rename(id: library.order[0], to: "Sala principal")
         let favorite = library.order[2]
         let zip = tmp.url.appendingPathComponent("backup.zip")
-        try library.exportBackup(to: zip, favoriteIDs: [favorite])
+        try await library.exportBackup(to: zip, favoriteIDs: [favorite])
         #expect(FileManager.default.fileExists(atPath: zip.path))
 
         let (restored, manager) = makeLibrary(tmp.sub("other-mac"))
-        let result = try restored.importBackup(from: zip)
+        let result = try await restored.importBackup(from: zip)
         #expect(result.summary.imported.count == 6)
         #expect(result.favoriteIDs == [favorite])
         #expect(restored.order == library.order)
@@ -145,9 +146,60 @@ struct AutoEQLibraryTests {
         #expect(manager.profile(for: library.order[5])?.filters.count == 20)
 
         // Restoring again is a no-op.
-        let again = try restored.importBackup(from: zip)
+        let again = try await restored.importBackup(from: zip)
         #expect(again.summary.imported.isEmpty)
         #expect(restored.profiles.count == 6)
+    }
+
+    @Test("Backup restore blocks prefix-sibling path traversal and sanitizes unsafe manifest IDs")
+    func backupSecurityGuards() async throws {
+        let tmp = TempDir()
+        let backup = tmp.sub("backup")
+        let sibling = tmp.sub("backup-secret")
+        let secretFile = sibling.appendingPathComponent("secret.txt")
+        try AutoEQTestSupport.fixtureText("1_Harman.txt").write(to: secretFile, atomically: true, encoding: .utf8)
+
+        let profilesDir = backup.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profilesDir, withIntermediateDirectories: true)
+        try AutoEQTestSupport.fixtureText("2_Harman_Grave_Extra.txt").write(
+            to: profilesDir.appendingPathComponent("ok.txt"), atomically: true, encoding: .utf8)
+
+        let manifest = """
+        {
+          "formatVersion": 1,
+          "app": "FineTune",
+          "exportedAt": "2026-01-01T00:00:00Z",
+          "profiles": [
+            {"id": "escaped", "name": "Escaped", "file": "../backup-secret/secret.txt", "favorite": false},
+            {"id": "../../evil", "name": "Safe Content", "file": "profiles/ok.txt", "favorite": false}
+          ]
+        }
+        """
+        try manifest.write(to: backup.appendingPathComponent("library.json"), atomically: true, encoding: .utf8)
+
+        let store = tmp.sub("store")
+        let (library, _) = makeLibrary(store)
+        let result = try await library.importBackup(from: backup)
+        // Sibling traversal was blocked; valid profile imported with a safe generated UUID.
+        #expect(result.summary.imported.count == 1)
+        let imported = try #require(result.summary.imported.first)
+        #expect(imported.name == "Safe Content")
+        #expect(AutoEQProfileLoader.isSafeProfileID(imported.id))
+        #expect(!imported.id.contains(".."))
+        #expect(!FileManager.default.fileExists(atPath: tmp.url.appendingPathComponent("evil.txt").path))
+    }
+
+    @Test("Unreadable profile file on disk does not abort loading other imported profiles")
+    func corruptFileDoesNotBreakLibraryLoad() throws {
+        let tmp = TempDir()
+        let store = tmp.sub("store")
+        let loader = AutoEQProfileLoader(directory: store)
+        try loader.saveProfile(id: "good-1", text: try AutoEQTestSupport.fixtureText("1_Harman.txt"), name: "Good")
+        // Create a directory named `bad.txt` so reading it as Data throws.
+        try FileManager.default.createDirectory(at: store.appendingPathComponent("bad.txt"), withIntermediateDirectories: true)
+
+        let (library, _) = makeLibrary(store)
+        #expect(library.profiles.map(\.name) == ["Good"])
     }
 }
 
@@ -336,5 +388,81 @@ struct AutoEQLevelMatchTests {
         #expect(p.validated().levelTrimDB == -3)
         p.levelTrimDB = 5  // never boosts
         #expect(p.validated().levelTrimDB == 0)
+    }
+
+    @Test("validated() drops non-finite filter parameters and zeroes NaN preamp instead of clamping to +30 dB")
+    func validatedRejectsNonFinite() {
+        let bad = AutoEQProfile(
+            id: "bad",
+            name: "Bad",
+            source: .imported,
+            preampDB: .nan,
+            filters: [
+                AutoEQFilter(type: .peaking, frequency: .infinity, gainDB: 3, q: 1),
+                AutoEQFilter(type: .peaking, frequency: 1000, gainDB: 3, q: .infinity),
+                AutoEQFilter(type: .peaking, frequency: 1000, gainDB: 2, q: 1.4)
+            ],
+            optimizedSampleRate: nil
+        )
+        let validated = bad.validated()
+        #expect(validated.preampDB == 0)
+        #expect(validated.filters.count == 1)
+        #expect(validated.filters[0].frequency == 1000 && validated.filters[0].q == 1.4)
+    }
+
+    @Test("A/B toggle follows actual active profile, ignores disabled correction, and prevents A == B")
+    func abToggleAndStateSemantics() throws {
+        let tmp = TempDir()
+        let settings = SettingsManager(directory: tmp.sub("settings"))
+        let loader = AutoEQProfileLoader(directory: tmp.sub("autoeq"))
+        try loader.saveProfile(id: "prof-a", text: try AutoEQTestSupport.fixtureText("1_Harman.txt"), name: "A")
+        try loader.saveProfile(id: "prof-b", text: try AutoEQTestSupport.fixtureText("2_Harman_Grave_Extra.txt"), name: "B")
+        let profileManager = AutoEQProfileManager(loader: loader)
+
+        let deviceMonitor = MockAudioDeviceMonitor()
+        let device = AudioDevice(id: AudioDeviceID(42), uid: "uid-dac", name: "USB DAC", icon: nil, supportsAutoEQ: true)
+        deviceMonitor.addOutputDevice(device)
+        let volumeMonitor = MockDeviceVolumeProviding(deviceMonitor: deviceMonitor)
+        volumeMonitor.defaultDeviceUID = device.uid
+
+        let engine = AudioEngine(
+            permission: AudioRecordingPermission(),
+            settingsManager: settings,
+            autoEQProfileManager: profileManager,
+            deviceProvider: deviceMonitor,
+            processMonitor: StubProcessMonitor(),
+            deviceVolumeMonitor: volumeMonitor,
+            startMonitorsAutomatically: false
+        )
+
+        // Setting the same profile to both slots clears the opposite slot and stays unconfigured.
+        engine.setAutoEQABProfile("prof-a", slot: .a)
+        engine.setAutoEQABProfile("prof-a", slot: .b)
+        #expect(!engine.autoEQAB.isConfigured)
+        #expect(engine.autoEQAB.profileA == nil)
+        #expect(engine.autoEQAB.profileB == "prof-a")
+
+        // Configure distinct A and B.
+        engine.setAutoEQABProfile("prof-a", slot: .a)
+        engine.setAutoEQABProfile("prof-b", slot: .b)
+        #expect(engine.autoEQAB.isConfigured)
+
+        // Start A/B -> activates A.
+        #expect(engine.toggleAutoEQAB() == .a)
+        #expect(engine.activeAutoEQProfile?.id == "prof-a")
+        #expect(engine.activeAutoEQABSlot == .a)
+
+        // User manually switches to B (ab.active is still .a internally): next toggle must go straight to A!
+        engine.selectAutoEQProfileForActiveDevice("prof-b")
+        #expect(engine.activeAutoEQABSlot == .b)
+        #expect(engine.toggleAutoEQAB() == .a)
+        #expect(engine.activeAutoEQProfile?.id == "prof-a")
+
+        // Disabling correction clears activeAutoEQABSlot, and toggling A/B re-enables slot A.
+        engine.setAutoEQEnabled(for: device.uid, enabled: false)
+        #expect(engine.activeAutoEQABSlot == nil)
+        #expect(engine.toggleAutoEQAB() == .a)
+        #expect(engine.isActiveAutoEQEnabled)
+        #expect(engine.activeAutoEQProfile?.id == "prof-a")
     }
 }

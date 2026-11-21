@@ -2,6 +2,7 @@
 import AudioToolbox
 import Foundation
 import os
+import Synchronization
 
 // MARK: - Threading Model
 //
@@ -135,6 +136,12 @@ final class ProcessTapController: ProcessTapControlling {
     private nonisolated(unsafe) var secondaryAutoEQProcessor: AutoEQProcessor?
     private nonisolated(unsafe) var secondaryLoudnessCompensator: LoudnessCompensator?
     private nonisolated(unsafe) var secondaryLoudnessEqualizerProcessor: LoudnessEqualizer?
+
+    /// RT-safe stereo processing state (combined app + device balance, mono downmix, L/R swap).
+    private let _stereoLeftGainBits = Atomic<UInt32>(Float(1.0).bitPattern)
+    private let _stereoRightGainBits = Atomic<UInt32>(Float(1.0).bitPattern)
+    private let _stereoIsMono = Atomic<Bool>(false)
+    private let _stereoSwapChannels = Atomic<Bool>(false)
 
     // Target device UIDs for synchronized multi-output (first is clock source)
     private var targetDeviceUIDs: [String]
@@ -286,6 +293,17 @@ final class ProcessTapController: ProcessTapControlling {
             secondaryLoudnessEqualizerProcessor = newSecondary
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { _ = secondary }
         }
+    }
+
+    func updateStereoProcessing(appBalance: Float, deviceProcessing: DeviceAudioProcessingSettings) {
+        let appGains = DeviceAudioProcessingSettings.channelGains(balance: appBalance)
+        let devGains = DeviceAudioProcessingSettings.channelGains(balance: deviceProcessing.balance)
+        let leftGain = appGains.left * devGains.left
+        let rightGain = appGains.right * devGains.right
+        _stereoLeftGainBits.store(leftGain.bitPattern, ordering: .relaxed)
+        _stereoRightGainBits.store(rightGain.bitPattern, ordering: .relaxed)
+        _stereoIsMono.store(deviceProcessing.isMono, ordering: .relaxed)
+        _stereoSwapChannels.store(deviceProcessing.swapChannels, ordering: .relaxed)
     }
 
     // MARK: - Multi-Device Aggregate Configuration
@@ -655,6 +673,7 @@ final class ProcessTapController: ProcessTapControlling {
             loudnessCompensator?.updateForVolume(initial.loudnessVolume)
         }
         _lastLoudnessVolume = initial.loudnessVolume
+        updateStereoProcessing(appBalance: initial.appBalance, deviceProcessing: initial.deviceProcessing)
 
         // Create IO proc with gain processing
         nextCallbackID += 1
@@ -1317,6 +1336,51 @@ final class ProcessTapController: ProcessTapControlling {
         }
     }
 
+    /// RT-safe stereo processing: optional L/R swap → mono downmix → L/R balance gains.
+    /// Operates in-place on interleaved buffers with ≥ 2 channels. No allocations or locks.
+    @inline(__always)
+    nonisolated static func applyStereoProcessing(
+        buffer: UnsafeMutablePointer<Float>,
+        frameCount: Int,
+        channelCount: Int,
+        leftChannel: Int,
+        rightChannel: Int,
+        swapChannels: Bool,
+        isMono: Bool,
+        leftGain: Float,
+        rightGain: Float
+    ) {
+        guard frameCount > 0, channelCount >= 2, leftChannel != rightChannel else { return }
+        let needsBalance = (leftGain != 1.0 || rightGain != 1.0)
+        guard swapChannels || isMono || needsBalance else { return }
+
+        let safeL = max(0, min(leftChannel, channelCount - 1))
+        let safeR = max(0, min(rightChannel, channelCount - 1))
+        guard safeL != safeR else { return }
+
+        for frame in 0..<frameCount {
+            let base = frame * channelCount
+            var l = buffer[base + safeL]
+            var r = buffer[base + safeR]
+            if swapChannels {
+                let tmp = l
+                l = r
+                r = tmp
+            }
+            if isMono {
+                let m = (l + r) * 0.5
+                l = m
+                r = m
+            }
+            if needsBalance {
+                l *= leftGain
+                r *= rightGain
+            }
+            buffer[base + safeL] = l
+            buffer[base + safeR] = r
+        }
+    }
+
     @inline(__always)
     nonisolated static func processMappedBuffers(
         inputBuffers: UnsafeMutableAudioBufferListPointer,
@@ -1331,7 +1395,11 @@ final class ProcessTapController: ProcessTapControlling {
         eqProc: EQProcessor?,
         autoEQProc: AutoEQProcessor?,
         loudnessEqualizerProc: LoudnessEqualizer?,
-        loudnessCompensatorProc: LoudnessCompensator?
+        loudnessCompensatorProc: LoudnessCompensator?,
+        stereoSwapChannels: Bool = false,
+        stereoIsMono: Bool = false,
+        stereoLeftGain: Float = 1.0,
+        stereoRightGain: Float = 1.0
     ) {
         let inputBufferCount = inputBuffers.count
         let outputBufferCount = outputBuffers.count
@@ -1467,6 +1535,21 @@ final class ProcessTapController: ProcessTapControlling {
             // Loudness compensation (after all EQ, before limiting)
             if let loudnessCompensatorProc, loudnessCompensatorProc.isEnabled, eqCanProcessStereoInterleaved {
                 loudnessCompensatorProc.process(input: outputSamples, output: outputSamples, frameCount: frameCount)
+            }
+
+            // Per-device / per-app stereo processing (swap L/R, mono downmix, L/R balance)
+            if outputChannels >= 2 {
+                applyStereoProcessing(
+                    buffer: outputSamples,
+                    frameCount: frameCount,
+                    channelCount: outputChannels,
+                    leftChannel: safeLeft,
+                    rightChannel: safeRight,
+                    swapChannels: stereoSwapChannels,
+                    isMono: stereoIsMono,
+                    leftGain: stereoLeftGain,
+                    rightGain: stereoRightGain
+                )
             }
 
             let writtenSampleCount = frameCount * outputChannels
@@ -1620,6 +1703,11 @@ final class ProcessTapController: ProcessTapControlling {
             loudnessCompensatorProc = secondaryLoudnessCompensator
         }
 
+        let stereoSwap = _stereoSwapChannels.load(ordering: .relaxed)
+        let stereoMono = _stereoIsMono.load(ordering: .relaxed)
+        let stereoLeftGain = Float(bitPattern: _stereoLeftGainBits.load(ordering: .relaxed))
+        let stereoRightGain = Float(bitPattern: _stereoRightGainBits.load(ordering: .relaxed))
+
         Self.processMappedBuffers(
             inputBuffers: inputBuffers,
             outputBuffers: outputBuffers,
@@ -1633,7 +1721,11 @@ final class ProcessTapController: ProcessTapControlling {
             eqProc: eqProc,
             autoEQProc: autoEQProc,
             loudnessEqualizerProc: loudnessEqualizerProc,
-            loudnessCompensatorProc: loudnessCompensatorProc
+            loudnessCompensatorProc: loudnessCompensatorProc,
+            stereoSwapChannels: stereoSwap,
+            stereoIsMono: stereoMono,
+            stereoLeftGain: stereoLeftGain,
+            stereoRightGain: stereoRightGain
         )
 
         if isPrimary {

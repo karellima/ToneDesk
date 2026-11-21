@@ -25,7 +25,7 @@ final class AutoEQFetcher {
 
     private static var cacheDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("FineTune")
+            .appendingPathComponent("ToneDesk")
     }
 
     private static var catalogCacheURL: URL {

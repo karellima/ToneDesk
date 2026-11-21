@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "79A607AE2F05C9E00008D52A"
-               BuildableName = "FineTune.app"
+               BuildableName = "ToneDesk.app"
                BlueprintName = "FineTune"
                ReferencedContainer = "container:FineTune.xcodeproj">
             </BuildableReference>
@@ -69,7 +69,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "79A607AE2F05C9E00008D52A"
-            BuildableName = "FineTune.app"
+            BuildableName = "ToneDesk.app"
             BlueprintName = "FineTune"
             ReferencedContainer = "container:FineTune.xcodeproj">
          </BuildableReference>
@@ -86,7 +86,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "79A607AE2F05C9E00008D52A"
-            BuildableName = "FineTune.app"
+            BuildableName = "ToneDesk.app"
             BlueprintName = "FineTune"
             ReferencedContainer = "container:FineTune.xcodeproj">
          </BuildableReference>

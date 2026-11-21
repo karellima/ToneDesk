@@ -52,6 +52,10 @@ final class WindowTitleTrackerView: NSView {
         observation = nil
 
         guard let window else { return }
+        if desiredTitle == "ToneDesk Settings" {
+            WindowFrontPresenter.settingsWindow = window
+            WindowFrontPresenter.bringToFront(window)
+        }
         if window.title != desiredTitle {
             window.title = desiredTitle
         }

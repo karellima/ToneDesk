@@ -26,6 +26,9 @@ nonisolated struct AppSettings: Codable, Equatable {
     // General
     var launchAtLogin: Bool = false
     var menuBarIconStyle: MenuBarIconStyle = .default
+    var showMenuBarMeter: Bool = false
+    var showMenuBarVolumeLabel: Bool = false
+    var menuBarQuickControlsEnabled: Bool = false
 
     // Audio
     var defaultNewAppVolume: Float = 1.0      // 100% (unity gain)
@@ -67,6 +70,9 @@ nonisolated struct AppSettings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         menuBarIconStyle = try c.decodeIfPresent(MenuBarIconStyle.self, forKey: .menuBarIconStyle) ?? .default
+        showMenuBarMeter = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarMeter) ?? false
+        showMenuBarVolumeLabel = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarVolumeLabel) ?? false
+        menuBarQuickControlsEnabled = try c.decodeIfPresent(Bool.self, forKey: .menuBarQuickControlsEnabled) ?? false
         defaultNewAppVolume = try c.decodeIfPresent(Float.self, forKey: .defaultNewAppVolume) ?? 1.0
         lockInputDevice = try c.decodeIfPresent(Bool.self, forKey: .lockInputDevice) ?? true
         showDeviceDisconnectAlerts = try c.decodeIfPresent(Bool.self, forKey: .showDeviceDisconnectAlerts) ?? true
@@ -144,6 +150,16 @@ final class SettingsManager {
         // User-created EQ presets (named EQ curves)
         var userEQPresets: [UserEQPreset] = []
 
+        // Per-device stereo processing (balance, mono, swap L/R, max volume limit, BT output-only)
+        var deviceAudioProcessing: [String: DeviceAudioProcessingSettings] = [:]
+        // Per-device editable global parametric EQ
+        var deviceParametricEQ: [String: DeviceParametricEQ] = [:]
+        // Per-app stereo balance (-1.0...1.0, keyed by persistenceIdentifier)
+        var appBalances: [String: Float] = [:]
+        // Saved Quick Configs (audio scenes)
+        var audioScenes: [AudioScene] = []
+        var activeAudioSceneID: UUID? = nil
+
         init() {}
 
         init(from decoder: Decoder) throws {
@@ -193,11 +209,66 @@ final class SettingsManager {
             deviceAutoEQByName = try c.decodeIfPresent([String: AutoEQSelection].self, forKey: .deviceAutoEQByName) ?? [:]
             autoEQAB = (try? c.decodeIfPresent(AutoEQABSettings.self, forKey: .autoEQAB)) ?? AutoEQABSettings()
             userEQPresets = try c.decodeIfPresent([UserEQPreset].self, forKey: .userEQPresets) ?? []
+            deviceAudioProcessing = Self.decodeLossyDictionary(DeviceAudioProcessingSettings.self, from: c, forKey: .deviceAudioProcessing)
+            deviceParametricEQ = Self.decodeLossyDictionary(DeviceParametricEQ.self, from: c, forKey: .deviceParametricEQ)
+            appBalances = Self.decodeLossyDictionary(Float.self, from: c, forKey: .appBalances)
+                .filter { $0.value.isFinite }
+                .mapValues { DeviceAudioProcessingSettings.clampedBalance($0) }
+            audioScenes = Self.decodeLossyArray(AudioScene.self, from: c, forKey: .audioScenes)
+            activeAudioSceneID = try? c.decodeIfPresent(UUID.self, forKey: .activeAudioSceneID)
+        }
+
+        private struct AnyCodingKey: CodingKey {
+            var stringValue: String
+            var intValue: Int?
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { self.intValue = intValue; self.stringValue = "\(intValue)" }
+        }
+
+        /// Skips individual malformed array items without discarding valid siblings.
+        private static func decodeLossyArray<T: Decodable, K: CodingKey>(
+            _ type: T.Type,
+            from container: KeyedDecodingContainer<K>,
+            forKey key: K
+        ) -> [T] {
+            guard container.contains(key),
+                  var unkeyed = try? container.nestedUnkeyedContainer(forKey: key) else { return [] }
+            var results: [T] = []
+            while !unkeyed.isAtEnd {
+                if let item = try? unkeyed.decode(T.self) {
+                    results.append(item)
+                } else {
+                    // Advance past the corrupt element so decoding continues cleanly.
+                    _ = try? unkeyed.decode(AnyDecodableSkip.self)
+                }
+            }
+            return results
+        }
+
+        /// Skips individual malformed dictionary entries without discarding valid keys.
+        private static func decodeLossyDictionary<V: Decodable, K: CodingKey>(
+            _ type: V.Type,
+            from container: KeyedDecodingContainer<K>,
+            forKey key: K
+        ) -> [String: V] {
+            guard container.contains(key),
+                  let nested = try? container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: key) else { return [:] }
+            var results: [String: V] = [:]
+            for entryKey in nested.allKeys {
+                if let value = try? nested.decode(V.self, forKey: entryKey) {
+                    results[entryKey.stringValue] = value
+                }
+            }
+            return results
+        }
+
+        private struct AnyDecodableSkip: Decodable {
+            init(from decoder: Decoder) throws {}
         }
     }
 
     init(directory: URL? = nil) {
-        let baseDir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("FineTune")
+        let baseDir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("ToneDesk")
         self.settingsURL = baseDir.appendingPathComponent("settings.json")
         self.settings = Settings()
         loadFromDisk()
@@ -757,6 +828,103 @@ final class SettingsManager {
     /// Schema version of the loaded settings (current after migration).
     var settingsVersion: Int { settings.version }
 
+    // MARK: - Per-Device Stereo Processing, Max Volume Limit & BT Output-Only
+
+    func getDeviceAudioProcessing(for deviceUID: String) -> DeviceAudioProcessingSettings {
+        settings.deviceAudioProcessing[deviceUID] ?? .default
+    }
+
+    func setDeviceAudioProcessing(for deviceUID: String, to processing: DeviceAudioProcessingSettings) {
+        if processing.isDefault {
+            settings.deviceAudioProcessing.removeValue(forKey: deviceUID)
+        } else {
+            settings.deviceAudioProcessing[deviceUID] = processing
+        }
+        scheduleSave()
+    }
+
+    var allDeviceAudioProcessing: [String: DeviceAudioProcessingSettings] {
+        settings.deviceAudioProcessing
+    }
+
+    // MARK: - Per-Device Global Parametric EQ
+
+    func getDeviceParametricEQ(for deviceUID: String) -> DeviceParametricEQ {
+        settings.deviceParametricEQ[deviceUID] ?? .default
+    }
+
+    func setDeviceParametricEQ(for deviceUID: String, to eq: DeviceParametricEQ) {
+        if eq.isDefaultFlat {
+            settings.deviceParametricEQ.removeValue(forKey: deviceUID)
+        } else {
+            settings.deviceParametricEQ[deviceUID] = eq
+        }
+        scheduleSave()
+    }
+
+    var allDeviceParametricEQ: [String: DeviceParametricEQ] {
+        settings.deviceParametricEQ
+    }
+
+    // MARK: - Per-App Stereo Balance
+
+    func getAppBalance(for identifier: String) -> Float {
+        settings.appBalances[identifier] ?? 0.0
+    }
+
+    func setAppBalance(for identifier: String, to balance: Float) {
+        let clamped = DeviceAudioProcessingSettings.clampedBalance(balance)
+        if clamped == 0.0 {
+            settings.appBalances.removeValue(forKey: identifier)
+        } else {
+            settings.appBalances[identifier] = clamped
+        }
+        scheduleSave()
+    }
+
+    var allAppBalances: [String: Float] {
+        settings.appBalances
+    }
+
+    // MARK: - Quick Configs (Audio Scenes)
+
+    var audioScenes: [AudioScene] {
+        settings.audioScenes
+    }
+
+    var activeAudioSceneID: UUID? {
+        get { settings.activeAudioSceneID }
+        set {
+            settings.activeAudioSceneID = newValue
+            scheduleSave()
+        }
+    }
+
+    func saveAudioScene(_ scene: AudioScene) {
+        if let idx = settings.audioScenes.firstIndex(where: { $0.id == scene.id }) {
+            settings.audioScenes[idx] = scene
+        } else {
+            settings.audioScenes.append(scene)
+        }
+        scheduleSave()
+    }
+
+    func deleteAudioScene(id: UUID) {
+        settings.audioScenes.removeAll { $0.id == id }
+        if settings.activeAudioSceneID == id {
+            settings.activeAudioSceneID = nil
+        }
+        scheduleSave()
+    }
+
+    func renameAudioScene(id: UUID, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = settings.audioScenes.firstIndex(where: { $0.id == id }) else { return }
+        settings.audioScenes[idx].name = trimmed
+        scheduleSave()
+    }
+
     func favoriteAutoEQProfile(id: String) {
         settings.favoriteAutoEQProfiles.insert(id)
         scheduleSave()
@@ -917,6 +1085,11 @@ final class SettingsManager {
         settings.appDeviceSelectionMode.removeAll()
         settings.appSelectedDeviceUIDs.removeAll()
         settings.userEQPresets.removeAll()
+        settings.deviceAudioProcessing.removeAll()
+        settings.deviceParametricEQ.removeAll()
+        settings.appBalances.removeAll()
+        settings.audioScenes.removeAll()
+        settings.activeAudioSceneID = nil
 
         // Also unregister from launch at login
         try? SMAppService.mainApp.unregister()

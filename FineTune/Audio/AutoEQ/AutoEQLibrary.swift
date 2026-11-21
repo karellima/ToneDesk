@@ -120,7 +120,11 @@ final class AutoEQLibrary {
             return
         }
 
-        let resolvedID = id.flatMap { manager.profile(for: $0) == nil ? $0 : nil }
+        let resolvedID = id.flatMap { candidate -> String? in
+            guard AutoEQProfileLoader.isSafeProfileID(candidate),
+                  manager.profile(for: candidate) == nil else { return nil }
+            return candidate
+        }
         let report = loader.importProfileReport(from: url, name: displayName, id: resolvedID)
         summary.warnings.append(contentsOf: report.warnings.map { "\(fileName): \($0)" })
         guard let profile = report.profile else {
@@ -200,13 +204,13 @@ final class AutoEQLibrary {
               let text = loader.readProfileText(id: id) else { return nil }
         let newID = UUID().uuidString
         let newName = uniqueName(base: "\(profile.name) copy")
+        guard let copy = AutoEQParser.parse(text: text, name: newName, source: .imported, id: newID) else { return nil }
         do {
             try loader.saveProfile(id: newID, text: text, name: newName)
         } catch {
             logger.error("Duplicate failed: \(error.localizedDescription)")
             return nil
         }
-        guard let copy = AutoEQParser.parse(text: text, name: newName, source: .imported, id: newID) else { return nil }
         manager.registerImported(copy)
         let index = order.firstIndex(of: id).map { $0 + 1 } ?? order.count
         order.insert(newID, at: index)
@@ -263,15 +267,15 @@ final class AutoEQLibrary {
             let favorite: Bool
         }
         var formatVersion: Int = 1
-        var app: String = "FineTune"
+        var app: String = "ToneDesk"
         var exportedAt: Date
         var profiles: [Entry]
     }
 
-    static let backupFolderName = "FineTune Profiles"
+    static let backupFolderName = "ToneDesk Profiles"
 
     /// Writes the whole library (files, names, order, favorites) to a `.zip` at `destination`.
-    func exportBackup(to destination: URL, favoriteIDs: Set<String>) throws {
+    func exportBackup(to destination: URL, favoriteIDs: Set<String>) async throws {
         let fm = FileManager.default
         let staging = fm.temporaryDirectory.appendingPathComponent("FineTuneExport-\(UUID().uuidString)")
         let root = staging.appendingPathComponent(Self.backupFolderName)
@@ -295,7 +299,7 @@ final class AutoEQLibrary {
 
         if destination.pathExtension.lowercased() == "zip" {
             try? fm.removeItem(at: destination)
-            try Self.runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", root.path, destination.path])
+            try await Self.runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", root.path, destination.path])
         } else {
             try? fm.removeItem(at: destination)
             try fm.copyItem(at: root, to: destination)
@@ -306,7 +310,7 @@ final class AutoEQLibrary {
     /// Restores a backup (`.zip` or folder). Profiles already present (same name and
     /// filters) are skipped; original IDs are kept when free so device assignments in a
     /// restored settings file keep working. Returns the summary and the IDs to favorite.
-    func importBackup(from source: URL) throws -> (summary: AutoEQImportSummary, favoriteIDs: Set<String>) {
+    func importBackup(from source: URL) async throws -> (summary: AutoEQImportSummary, favoriteIDs: Set<String>) {
         let fm = FileManager.default
         var root = source
         var cleanup: URL?
@@ -316,7 +320,7 @@ final class AutoEQLibrary {
             let tmp = fm.temporaryDirectory.appendingPathComponent("FineTuneImport-\(UUID().uuidString)")
             try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
             cleanup = tmp
-            try Self.runDitto(["-x", "-k", source.path, tmp.path])
+            try await Self.runDitto(["-x", "-k", source.path, tmp.path])
             root = tmp
         }
 
@@ -327,14 +331,15 @@ final class AutoEQLibrary {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(Manifest.self, from: Data(contentsOf: manifestURL))
-        let base = manifestURL.deletingLastPathComponent()
+        let base = manifestURL.deletingLastPathComponent().standardizedFileURL
+        let basePrefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
 
         var summary = AutoEQImportSummary()
         var favorites: Set<String> = []
         for entry in manifest.profiles {
             let fileURL = base.appendingPathComponent(entry.file).standardizedFileURL
             // Never read outside the backup folder.
-            guard fileURL.path.hasPrefix(base.standardizedFileURL.path) else { continue }
+            guard fileURL.path.hasPrefix(basePrefix) else { continue }
             let before = summary.imported.count
             importFile(fileURL, name: entry.name, id: entry.id, into: &summary)
             if entry.favorite, summary.imported.count > before, let id = summary.imported.last?.id {
@@ -367,12 +372,25 @@ final class AutoEQLibrary {
     }
 
     /// `/usr/bin/ditto` ships with macOS and handles Finder-compatible zip archives.
-    private static func runDitto(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = arguments
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw BackupError.archiveFailed(process.terminationStatus) }
+    /// Awaits process completion asynchronously so `@MainActor` is never blocked.
+    private nonisolated static func runDitto(_ arguments: [String]) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = arguments
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: BackupError.archiveFailed(proc.terminationStatus))
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
     }
 }

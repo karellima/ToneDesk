@@ -1,5 +1,6 @@
 // FineTune/Views/MenuBar/AutoEQStatusMenu.swift
 import AppKit
+import AudioToolbox
 
 /// Right-click menu on the menu bar icon: one-click switching between library profiles
 /// for the default output device, plus A/B controls. Rebuilt every time it opens.
@@ -25,7 +26,31 @@ final class AutoEQStatusMenu: NSObject, NSMenuDelegate {
         guard let engine else { return }
 
         let deviceName = engine.autoEQTargetDeviceName ?? "No output device"
-        menu.addItem(header("EQ profile · \(deviceName)"))
+        menu.addItem(header("Output · \(deviceName)"))
+
+        // Quick mute + output device switcher directly from the right-click menu
+        let defaultID = engine.deviceVolumeMonitor.defaultDeviceID
+        if defaultID.isValid {
+            let isMuted = engine.deviceVolumeMonitor.muteStates[defaultID] ?? false
+            let muteItem = item(isMuted ? "Unmute \(deviceName)" : "Mute \(deviceName)", action: #selector(toggleDefaultMute))
+            menu.addItem(muteItem)
+        }
+        let outputs = engine.prioritySortedOutputDevices
+        if outputs.count > 1 {
+            let switchItem = NSMenuItem(title: "Switch Output Device", action: nil, keyEquivalent: "")
+            let sub = NSMenu(title: "Output Devices")
+            for dev in outputs {
+                let devItem = item(dev.name, action: #selector(selectOutputDevice(_:)))
+                devItem.representedObject = dev.id
+                devItem.state = (dev.id == defaultID) ? .on : .off
+                sub.addItem(devItem)
+            }
+            switchItem.submenu = sub
+            menu.addItem(switchItem)
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(header("EQ profile"))
 
         let active = engine.activeAutoEQProfile
         let enabled = engine.isActiveAutoEQEnabled
@@ -93,6 +118,20 @@ final class AutoEQStatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(setup)
         }
 
+        // Quick Configs (Audio Scenes)
+        let scenes = engine.quickConfigs
+        if !scenes.isEmpty {
+            menu.addItem(.separator())
+            let activeSceneID = engine.activeQuickConfigID
+            menu.addItem(header(activeSceneID != nil ? "Quick Configs · ✓ last applied" : "Quick Configs"))
+            for scene in scenes {
+                let entry = item(scene.name, action: #selector(selectQuickConfig(_:)))
+                entry.representedObject = scene.id
+                entry.state = (scene.id == activeSceneID) ? .on : .off
+                menu.addItem(entry)
+            }
+        }
+
         menu.addItem(.separator())
         menu.addItem(item("Manage Profile Library…", action: #selector(openLibrary)))
     }
@@ -118,6 +157,19 @@ final class AutoEQStatusMenu: NSObject, NSMenuDelegate {
     }
 
     // MARK: - Actions
+
+    @objc private func toggleDefaultMute() {
+        guard let engine else { return }
+        let id = engine.deviceVolumeMonitor.defaultDeviceID
+        guard id.isValid else { return }
+        let muted = engine.deviceVolumeMonitor.muteStates[id] ?? false
+        engine.deviceVolumeMonitor.setMute(for: id, to: !muted)
+    }
+
+    @objc private func selectOutputDevice(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? AudioDeviceID else { return }
+        engine?.setDefaultOutputDevice(id)
+    }
 
     @objc private func selectNone() { engine?.selectAutoEQProfileForActiveDevice(nil) }
 
@@ -147,10 +199,21 @@ final class AutoEQStatusMenu: NSObject, NSMenuDelegate {
         engine.setAutoEQABLevelMatch(!engine.autoEQAB.levelMatch)
     }
 
+    @objc private func selectQuickConfig(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        engine?.applyQuickConfig(id: id)
+    }
+
     @objc private func openLibrary() {
         NSApp.activate(ignoringOtherApps: true)
         SettingsNavigation.shared.requestedSection = "profiles"
-        Self.openSettingsAction?()
+        if let openSettings = Self.openSettingsAction {
+            openSettings()
+        } else {
+            // Works even if the left-click popup has never been opened since launch.
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            WindowFrontPresenter.bringSettingsToFront()
+        }
     }
 }
 

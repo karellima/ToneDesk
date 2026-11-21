@@ -50,7 +50,6 @@ struct FineTuneApp: App {
     @State private var menuBarPopupController: MenuBarPopupController
     @State private var shortcutsRegistry: ShortcutsRegistry
     @State private var resolver: TargetAppResolver
-    @StateObject private var updateManager = UpdateManager()
     @State private var showMenuBarExtra = true
     /// Right-click menu on the status item (profile quick switch + A/B).
     @State private var autoEQStatusMenu: AutoEQStatusMenu
@@ -71,11 +70,10 @@ struct FineTuneApp: App {
                 accessibility: accessibility,
                 mediaKeyStatus: mediaKeyStatus,
                 mediaKeyMonitor: mediaKeyMonitor,
-                shortcutsRegistry: shortcutsRegistry,
-                updateManager: updateManager
+                shortcutsRegistry: shortcutsRegistry
             )
         }
-        FluidMenuBarExtra("FineTune", image: launchIconImage, isInserted: $showMenuBarExtra, menu: autoEQStatusMenu.menu) {
+        FluidMenuBarExtra("ToneDesk", image: launchIconImage, isInserted: $showMenuBarExtra, menu: autoEQStatusMenu.menu) {
             menuBarContent
         }
     }
@@ -88,7 +86,6 @@ struct FineTuneApp: App {
         MenuBarPopupView(
             audioEngine: audioEngine,
             deviceVolumeMonitor: audioEngine.deviceVolumeMonitor as! DeviceVolumeMonitor,
-            updateManager: updateManager,
             permission: audioEngine.permission,
             accessibility: accessibility,
             mediaKeyStatus: mediaKeyStatus,
@@ -169,7 +166,35 @@ struct FineTuneApp: App {
             deviceProvider: engine.deviceMonitor,
             settings: settings
         )
+        coordinator.audioLevelProvider = { [weak engine] in
+            engine?.currentOutputPeakLevel ?? 0
+        }
+        coordinator.onQuickVolumeDelta = { [weak engine] sliderDelta in
+            guard let engine else { return }
+            let vm = engine.deviceVolumeMonitor
+            let deviceID = vm.defaultDeviceID
+            guard deviceID.isValid else { return }
+            let tier = vm.outputVolumeBackend(for: deviceID)
+            let currentVol = vm.volumes[deviceID] ?? 0
+            let currentSlider = DeviceRow.volumeToSlider(currentVol, backend: tier)
+            let nextSlider = max(0.0, min(1.0, currentSlider + sliderDelta))
+            if (vm.muteStates[deviceID] ?? false) && nextSlider > 0 {
+                vm.setMute(for: deviceID, to: false)
+            }
+            vm.setVolume(for: deviceID, to: VolumeMapping.systemGain(forSliderFraction: nextSlider, tier: tier))
+        }
+        coordinator.onQuickMuteToggle = { [weak engine] in
+            guard let engine else { return }
+            let vm = engine.deviceVolumeMonitor
+            let deviceID = vm.defaultDeviceID
+            guard deviceID.isValid else { return }
+            let isMuted = vm.muteStates[deviceID] ?? false
+            vm.setMute(for: deviceID, to: !isMuted)
+        }
         monitor.iconCoordinator = coordinator
+        // Register the local status-item monitor now — before SwiftUI builds FluidMenuBarExtra —
+        // so Option-click is intercepted ahead of FluidMenuBarExtraStatusItem's own local monitor.
+        coordinator.installEarlyLocalMonitor()
         // Defer start() so NSApplication.shared is fully bootstrapped before we walk NSApp.windows.
         DispatchQueue.main.async { [coordinator] in coordinator.start() }
         _iconCoordinator = State(initialValue: coordinator)
@@ -211,7 +236,7 @@ struct FineTuneApp: App {
         // status item has been materialized before any hotkey can fire.
         let popupController = MenuBarPopupController()
         let resolver = TargetAppResolver(
-            ownBundleID: Bundle.main.bundleIdentifier ?? "com.finetuneapp.FineTune"
+            ownBundleID: Bundle.main.bundleIdentifier ?? "com.karel.ToneDesk"
         )
         resolver.start()
         let registry = ShortcutsRegistry(

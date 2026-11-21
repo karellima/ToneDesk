@@ -20,7 +20,7 @@ nonisolated enum AutoEQParseError: Error, Equatable, LocalizedError {
         case .noFilters:
             return "No enabled filters found. Expected lines like \"Filter 1: ON PK Fc 100 Hz Gain -2.0 dB Q 1.41\"."
         case let .tooManyFilters(count, max):
-            return "This profile has \(count) filters; FineTune supports up to \(max). Nothing was truncated — reduce the filter count and import again."
+            return "This profile has \(count) filters; ToneDesk supports up to \(max). Nothing was truncated — reduce the filter count and import again."
         case let .valueOutOfRange(lineNumber, line, reason):
             return "Line \(lineNumber): \(reason) — \"\(line)\""
         case let .preampOutOfRange(lineNumber, value):
