@@ -18,7 +18,7 @@ struct DropdownMenu<Item: Identifiable, Label: View, ItemContent: View>: View wh
     @Environment(\.appearancePreference) private var appearancePreference
 
     // Configuration
-    private let itemHeight: CGFloat = 26
+    private let itemHeight: CGFloat = 24
     private let itemSpacing: CGFloat = 2
     private let verticalPadding: CGFloat = 12  // 6 top + 6 bottom
     private let cornerRadius: CGFloat = 8
@@ -72,7 +72,7 @@ struct DropdownMenu<Item: Identifiable, Label: View, ItemContent: View>: View wh
         .overlay {
             RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
                 .strokeBorder(
-                    isButtonHovered ? DesignTokens.Colors.glassRowBorderHover : DesignTokens.Colors.glassRowBorder,
+                    isButtonHovered ? DesignTokens.Colors.menuBorderHover : DesignTokens.Colors.menuBorder,
                     lineWidth: 0.5
                 )
         }
@@ -178,7 +178,7 @@ private struct DropdownMenuItem<Item: Identifiable, ItemContent: View>: View whe
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
-                        .fill(isHovered ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .fill(isHovered ? DesignTokens.Colors.hoverSurface : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -196,9 +196,11 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
     let sections: [Section]
     let itemsForSection: (Section) -> [Item]
     let sectionTitle: (Section) -> String
+    var emptySectionMessage: ((Section) -> String?)? = nil
     let selectedItem: Item?
     let maxHeight: CGFloat
     let width: CGFloat
+    var maxWidth: CGFloat? = nil
     let popoverWidth: CGFloat?
     let onSelect: (Item) -> Void
     @ViewBuilder let label: (Item?) -> Label
@@ -210,13 +212,13 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
     @Environment(\.appearancePreference) private var appearancePreference
 
     // Configuration
-    private let itemHeight: CGFloat = 22
+    private let itemHeight: CGFloat = 24
     private let sectionHeaderHeight: CGFloat = 24
     private let cornerRadius: CGFloat = 8
     private let animationDuration: Double = 0.15
 
     private var effectivePopoverWidth: CGFloat {
-        popoverWidth ?? width
+        popoverWidth ?? maxWidth ?? width
     }
 
     // MARK: - Trigger Button
@@ -241,7 +243,7 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
             }
             .padding(.horizontal, DesignTokens.Spacing.sm)
             .padding(.vertical, 4)
-            .frame(width: width)
+            .frame(minWidth: width, maxWidth: maxWidth ?? width)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -252,7 +254,7 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
         .overlay {
             RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
                 .strokeBorder(
-                    isButtonHovered ? DesignTokens.Colors.glassRowBorderHover : DesignTokens.Colors.glassRowBorder,
+                    isButtonHovered ? DesignTokens.Colors.menuBorderHover : DesignTokens.Colors.menuBorder,
                     lineWidth: 0.5
                 )
         }
@@ -273,6 +275,7 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
                         sections: sections,
                         itemsForSection: itemsForSection,
                         sectionTitle: sectionTitle,
+                        emptySectionMessage: emptySectionMessage,
                         selectedItem: selectedItem,
                         width: effectivePopoverWidth,
                         maxHeight: maxHeight,
@@ -300,6 +303,7 @@ private struct GroupedDropdownContentView<Section: Identifiable & Hashable, Item
     let sections: [Section]
     let itemsForSection: (Section) -> [Item]
     let sectionTitle: (Section) -> String
+    let emptySectionMessage: ((Section) -> String?)?
     let selectedItem: Item?
     let width: CGFloat
     let maxHeight: CGFloat
@@ -323,14 +327,24 @@ private struct GroupedDropdownContentView<Section: Identifiable & Hashable, Item
                         .frame(height: sectionHeaderHeight, alignment: .bottomLeading)
 
                     // Items in section
-                    ForEach(itemsForSection(section)) { item in
-                        DropdownMenuItem(
-                            item: item,
-                            isSelected: selectedItem?.id == item.id,
-                            itemHeight: itemHeight,
-                            onSelect: onSelect,
-                            itemContent: itemContent
-                        )
+                    let sectionItems = itemsForSection(section)
+                    if sectionItems.isEmpty, let emptyMessage = emptySectionMessage?(section) {
+                        Text(emptyMessage)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(sectionItems) { item in
+                            DropdownMenuItem(
+                                item: item,
+                                isSelected: selectedItem?.id == item.id,
+                                itemHeight: itemHeight,
+                                onSelect: onSelect,
+                                itemContent: itemContent
+                            )
+                        }
                     }
                 }
             }

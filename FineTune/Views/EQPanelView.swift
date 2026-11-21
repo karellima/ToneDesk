@@ -58,7 +58,7 @@ struct EQPanelView: View {
                 HStack(spacing: 6) {
                     Toggle("Enable EQ", isOn: $settings.isEnabled)
                         .toggleStyle(.switch)
-                        .scaleEffect(0.7)
+                        .controlSize(.mini)
                         .labelsHidden()
                         .onChange(of: settings.isEnabled) { _, _ in
                             onSettingsChanged(settings)
@@ -101,6 +101,7 @@ struct EQPanelView: View {
                         onRenameUserPreset: onRenameUserPreset
                     )
                 }
+                .opacity(settings.isEnabled ? 1.0 : 0.5)
             }
             .zIndex(1)  // Ensure dropdown renders above sliders
 
@@ -137,13 +138,11 @@ struct EQPanelView: View {
                 )
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(DesignTokens.Spacing.md)
         .background {
             RoundedRectangle(cornerRadius: 10)
                 .fill(DesignTokens.Colors.recessedBackground)
         }
-        .padding(.horizontal, 2)
         .padding(.top, DesignTokens.Spacing.xs)
         .padding(.bottom, DesignTokens.Spacing.xs)
         .animation(DesignTokens.Animation.quick, value: isSaving)
@@ -162,8 +161,7 @@ struct EQPanelView: View {
         } label: {
             Image(systemName: "plus.circle")
                 .font(.system(size: 13))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(DesignTokens.Colors.interactiveDefault)
+                .iconButtonStyle()
         }
         .buttonStyle(.plain)
         .help("Save current EQ as preset")
@@ -191,6 +189,11 @@ struct EQPanelView: View {
                             ? DesignTokens.Colors.textTertiary
                             : DesignTokens.Colors.accentPrimary
                     )
+                    .frame(
+                        minWidth: DesignTokens.Dimensions.minTouchTarget,
+                        minHeight: DesignTokens.Dimensions.minTouchTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(savePresetName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -203,6 +206,11 @@ struct EQPanelView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(DesignTokens.Colors.textTertiary)
+                    .frame(
+                        minWidth: DesignTokens.Dimensions.minTouchTarget,
+                        minHeight: DesignTokens.Dimensions.minTouchTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Cancel")
@@ -253,8 +261,7 @@ struct EQPanelView: View {
         } label: {
             Image(systemName: "pencil")
                 .font(.system(size: 12))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(DesignTokens.Colors.interactiveDefault)
+                .iconButtonStyle()
         }
         .buttonStyle(.plain)
         .help("Rename preset")
@@ -282,6 +289,11 @@ struct EQPanelView: View {
                             ? DesignTokens.Colors.textTertiary
                             : DesignTokens.Colors.accentPrimary
                     )
+                    .frame(
+                        minWidth: DesignTokens.Dimensions.minTouchTarget,
+                        minHeight: DesignTokens.Dimensions.minTouchTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(renamePresetName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -294,6 +306,11 @@ struct EQPanelView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(DesignTokens.Colors.textTertiary)
+                    .frame(
+                        minWidth: DesignTokens.Dimensions.minTouchTarget,
+                        minHeight: DesignTokens.Dimensions.minTouchTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Cancel")

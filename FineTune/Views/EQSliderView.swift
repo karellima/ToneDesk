@@ -117,7 +117,7 @@ struct EQSliderView: View {
                     .font(DesignTokens.Typography.eqLabel)
                     .foregroundStyle(DesignTokens.Colors.textSecondary)
                 Text("Hz")
-                    .font(DesignTokens.Typography.caption)
+                    .font(.system(size: 8))
                     .foregroundStyle(DesignTokens.Colors.textTertiary)
             }
         }

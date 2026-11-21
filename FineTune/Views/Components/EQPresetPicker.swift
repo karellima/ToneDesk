@@ -60,11 +60,10 @@ struct EQPresetPicker: View {
     let onDeleteUserPreset: (UUID) -> Void
     let onRenameUserPreset: (UUID, String) -> Void
 
+    @State private var pendingDeletePreset: (id: UUID, name: String)?
+
     private var sections: [EQPickerSection] {
-        var result: [EQPickerSection] = []
-        if !userPresets.isEmpty {
-            result.append(.myPresets)
-        }
+        var result: [EQPickerSection] = [.myPresets]
         result.append(contentsOf: EQPreset.Category.allCases.map { .builtIn($0) })
         return result
     }
@@ -92,10 +91,14 @@ struct EQPresetPicker: View {
             sections: sections,
             itemsForSection: { items(for: $0) },
             sectionTitle: { $0.title },
+            emptySectionMessage: { section in
+                section == .myPresets ? "Ajuste as bandas e toque em + para salvar" : nil
+            },
             selectedItem: selectedItem,
             maxHeight: 320,
             width: 100,
-            popoverWidth: 170,
+            maxWidth: 150,
+            popoverWidth: 190,
             onSelect: handleSelect
         ) { selected in
             Text(selected?.name ?? "Custom")
@@ -104,11 +107,32 @@ struct EQPresetPicker: View {
                 UserPresetItemView(
                     item: item,
                     isSelected: isSelected,
-                    onDelete: onDeleteUserPreset
+                    onRequestDelete: { id, name in
+                        pendingDeletePreset = (id, name)
+                    }
                 )
             } else {
                 BuiltInPresetItemView(item: item, isSelected: isSelected)
             }
+        }
+        .help(selectedItem?.name ?? "Custom")
+        .confirmationDialog(
+            pendingDeletePreset.map { "Delete “\($0.name)”?" } ?? "Delete Preset?",
+            isPresented: Binding(
+                get: { pendingDeletePreset != nil },
+                set: { if !$0 { pendingDeletePreset = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let preset = pendingDeletePreset {
+                Button("Delete", role: .destructive) {
+                    onDeleteUserPreset(preset.id)
+                    pendingDeletePreset = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDeletePreset = nil }
+        } message: {
+            Text("This EQ preset will be permanently removed.")
         }
     }
 }
@@ -138,7 +162,7 @@ private struct BuiltInPresetItemView: View {
 private struct UserPresetItemView: View {
     let item: EQPickerItem
     let isSelected: Bool
-    let onDelete: (UUID) -> Void
+    let onRequestDelete: (UUID, String) -> Void
 
     @State private var isHovered = false
 
@@ -154,12 +178,14 @@ private struct UserPresetItemView: View {
             }
             if let userID = item.userPresetID {
                 Button {
-                    onDelete(userID)
+                    onRequestDelete(userID, item.name)
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: "trash")
                         .font(.system(size: 10))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(isHovered ? DesignTokens.Colors.interactiveHover : .clear)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Delete preset \(item.name)")
