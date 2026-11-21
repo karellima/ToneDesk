@@ -30,7 +30,7 @@ struct ProfilesTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             toolbar
             abSection
             listSection
@@ -117,7 +117,7 @@ struct ProfilesTab: View {
                     .disabled(!ab.isConfigured)
             }
             .controlSize(.small)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .padding(.vertical, 10)
             if ab.isConfigured, let trims = audioEngine.autoEQABTrims {
                 SettingsRowDivider()
@@ -125,7 +125,7 @@ struct ProfilesTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             }
             if ab.isConfigured,
@@ -140,7 +140,7 @@ struct ProfilesTab: View {
                     secondaryLabel: "B: \(profB.name)",
                     height: 92
                 )
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
         }

@@ -17,11 +17,14 @@ struct SettingsSection<Content: View>: View {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(DesignTokens.Colors.textPrimary)
-                    .padding(.horizontal, 4)
             }
             VStack(spacing: 0) {
                 content()
             }
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(DesignTokens.Colors.eqCardBackground)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)

@@ -203,7 +203,7 @@ struct AudioTab: View {
                 }
                 .controlSize(.small)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
             let scenes = audioEngine.quickConfigs
@@ -285,7 +285,7 @@ struct AudioTab: View {
             }
             .controlSize(.small)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
 
