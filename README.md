@@ -1,12 +1,16 @@
-<img src="assets/icon.png" width="128" height="128" alt="Ícone do ToneDesk" align="left"/>
+<p align="center">
+  <img src="assets/icon.png" width="128" height="128" alt="Ícone do ToneDesk"/>
+</p>
 
-# ToneDesk
+<h1 align="center">ToneDesk</h1>
 
-Controle de áudio do macOS na barra de menus: volume por app, saída por app, correção de fones e caixas (AutoEQ/REW) e cenas de áudio com um clique.
+<p align="center">
+  Controle de áudio do macOS na barra de menus: volume por app, saída por app, correção de fones e caixas (AutoEQ/REW) e cenas de áudio com um clique.
+</p>
 
-macOS 15.4+ · GPL-3.0 · derivado do [FineTune](https://github.com/ronitsingh10/FineTune)
-
-<br clear="all"/>
+<p align="center">
+  macOS 15.4+ · GPL-3.0 · derivado do <a href="https://github.com/ronitsingh10/FineTune">FineTune</a>
+</p>
 
 <p align="center">
   <img src="assets/tonedesk-popup.png" alt="Popup do ToneDesk na barra de menus com volume por app e dispositivos de saída" width="420"/>
