@@ -1,85 +1,116 @@
-<img src="assets/icon.png" width="140" height="140" alt="ToneDesk app icon" align="left"/>
+<img src="assets/icon.png" width="128" height="128" alt="Ícone do ToneDesk" align="left"/>
 
 # ToneDesk
 
-Controle de áudio completo para macOS na barra de menus — volume independente por aplicativo, roteamento multi-dispositivo, correção de sala/fones (AutoEQ / REW de até 64 filtros), equalizador paramétrico global com gráfico interativo, cenas rápidas (*Quick Configs*), controles estéreo avançados e medidor ao vivo na barra de menus.
+Controle de áudio do macOS na barra de menus: volume por app, saída por app, correção de fones e caixas (AutoEQ/REW) e cenas de áudio com um clique.
 
-Mantido por **Karel Cristian** (`com.karel.ToneDesk`) — derivado de [FineTune](https://github.com/ronitsingh10/FineTune) sob licença **GPL-3.0**.
+macOS 15.4+ · GPL-3.0 · derivado do [FineTune](https://github.com/ronitsingh10/FineTune)
 
 <br clear="all"/>
 
----
+<!-- TODO: trocar pelos prints do ToneDesk. Os arquivos atuais em assets/screenshot-*.png ainda são do FineTune. -->
+<p align="center">
+  <img src="assets/tonedesk-popup.png" alt="Popup do ToneDesk na barra de menus com volume por app e dispositivos de saída" width="420"/>
+  <img src="assets/tonedesk-profiles.png" alt="Configurações › Profiles com comparação A/B entre dois perfis de EQ" width="420"/>
+</p>
 
-## O que foi construído e evoluído no ToneDesk
+## Recursos
 
-Este projeto evoluiu a base original do FineTune para uma estação pessoal definitiva de controle e calibração de áudio no macOS 15+:
+**Volume e saída por app**
+- Volume, mudo e balanço L/R independentes para cada app.
+- Mande cada app para uma saída diferente (ex.: música no DAC, chamadas no fone Bluetooth).
+- Limite de volume máximo por dispositivo, para proteger a audição.
+- Mono e inversão L⇄R por dispositivo.
 
-### 1. Identidade, Ícones e Autonomia
-- **Renomeação completa para ToneDesk** (`com.karel.ToneDesk`, esquema de URL `tonedesk://`, armazenamento isolado em `~/Library/Application Support/ToneDesk/`).
-- **Novo ícone do app (`AppIcon.appiconset`)** com todos os 10 slots nativos do macOS (16×16 até 1024×1024 px) e remoção do bundle antigo `fineTuneIcon.icon`.
-- **Novo glifo da barra de menus (`MenuBarIcon.imageset`)** em 18/36/54 px configurado como *Template Image* para adaptação automática a barras claras e escuras.
-- **Remoção de atualizações externas (Sparkle) e links de terceiros:** aba *Updates* removida de Settings, `UpdateManager` desativado na inicialização e links externos de doação/repositório upstream removidos. Autoria atualizada para **Karel Cristian** (`About` e `NSHumanReadableCopyright`).
+**Equalização**
+- EQ paramétrico por dispositivo, editado direto no gráfico de resposta de frequência.
+- Perfis AutoEQ / REW / Equalizer APO com até 64 filtros, aplicados sem cliques na troca.
+- Biblioteca de perfis com favoritos, prévia da curva, backup em `.zip` e associação automática ao dispositivo (mesmo trocando de porta USB).
+- **Comparação A/B** entre dois perfis com nivelamento de volume (LUFS), por clique ou atalho global.
 
-### 2. Equalização Paramétrica Global, AutoEQ (64 filtros) & Comparação A/B
-- **Global Parametric EQ por dispositivo (`DeviceParametricEQEditorView`):**
-  - Gráfico interativo de resposta de frequência (**20 Hz – 20 kHz**) em Dark e Light Mode com grade, eixos, preenchimento e legenda **Combined + AutoEQ** quando ambos estão ativos.
-  - Alças arrastáveis diretamente no gráfico com *z-order* dinâmico (banda selecionada sempre acima), pills para adicionar/alternar/habilitar/remover bandas, seletor **Peak / Low Shelf / High Shelf** e sliders monoespaçados **Preamp, Freq, Gain e Q** com auto-scroll para visibilidade imediata em *Compact*.
-  - Mini-gráfico clicável no inspector recolhido e exportação direta da curva para a biblioteca de perfis.
-- **Suporte a até 64 filtros por perfil REW / Equalizer APO:**
-  - Aplicação fiel dos coeficientes RBJ em 44.1, 48 e 96 kHz sem *pre-warping* indevido em arquivos importados.
-  - Troca de perfil/preamp livre de cliques com crossfade de 25 ms na thread de áudio.
-  - Preservação do preamp fixo do PEQ mesmo quando o preamp do AutoEQ é desativado.
-- **Biblioteca de Perfis (`Settings › Profiles`):**
-  - Importação em lote de arquivos `.txt` ou pastas (inclusive via drag & drop), favoritos, renomeação, reordenação, visualização expandida com gráfico acima da tabela de filtros e backup/restauração em `.zip`.
-  - Fallback por nome + fabricante do dispositivo para manter o perfil ativo mesmo trocando de porta USB.
-  - **Comparação A/B com *Level-Match* (LUFS K-weighted):** alternância rápida por clique, menu de contexto ou atalho global.
+**Quick Configs**
+- Salve o estado inteiro (saídas, volumes, EQ, roteamento dos apps) como uma cena e restaure com um clique ou atalho.
 
-### 3. Quick Configs (Cenas de Áudio)
-- Captura e restauração instantânea de snapshots completos (saída/entrada padrão, volumes, perfis AutoEQ, PEQ paramétrico, processamento estéreo e roteamento de apps).
-- Criação inline direto no cabeçalho do popup, atualização rápida (`Update "…"`), checkmark nativo na cena recém-aplicada (no menu do popup e no clique direito da barra de menus), gerenciamento completo em `Settings › Audio → Quick Configs` (Apply, Rename inline, Update com confirmação, Delete com confirmação) e atalho global **Next Quick Config**.
+**Barra de menus**
+- Medidor de nível e porcentagem de volume ao lado do ícone (opcional).
+- Rolagem no ícone ajusta o volume; Option-clique silencia.
+- Clique direito abre um menu rápido com dispositivo, perfis de EQ, A/B e Quick Configs.
+- Fixe o popup para ele continuar aberto sobre as outras janelas.
 
-### 4. Controles Estéreo, Proteção de Volume & Dispositivos
-- **Balance L/R** por dispositivo e por aplicativo (`BalanceSliderRow`, clique no valor para resetar a `Center`, pílula compacta `L30`/`R20` na `AppRow`).
-- **Mono** e **Swap L⇄R** por dispositivo.
-- **Max Volume Limit** (proteção auditiva configurável, ex. `≤ 70%`, com clamp imediato no slider e no volume real).
-- **Badges responsivos na `DeviceRow` (`BadgeFlowLayout`):** badges compactos (`PEQ`, `L/R`, `Mono`, `Swap`, `≤70%`) preservam largura legível e quebram linha automaticamente em *Compact* sem truncar nem esmagar o nome ou o slider.
-- **Bluetooth Output Only (Keep Music Quality):** evita troca automática para o perfil SCO/HFP de baixa qualidade em headsets Bluetooth.
-- **Estabilidade de Sample Rate:** recriação automática dos *process taps* quando qualquer dispositivo de saída muda de taxa de amostragem.
+## Instalação
 
-### 5. Barra de Menus, Pin Flutuante e Janelas
-- **Live Level Meter** (medidor VU de 2 barras em tempo real) + **Porcentagem de Volume (`XX%` / `Muted`)** opcionais ao lado do ícone da barra de menus.
-- **Controles rápidos no ícone (`Icon Scroll & Option-Click`):** opt-in em *Settings → General → Menu Bar* com monitor local prioritário (antes do `FluidMenuBarExtra`) + monitor global para funcionar mesmo com outro app em foco — scroll suave ajusta o volume (com proteção contra inércia de trackpad e limite por evento), Option-click e middle-click alternam mute sem abrir o popup.
-- **Menu nativo de clique direito:** dispositivo ativo, Mute/Unmute, Switch Output Device, perfis de EQ, A/B, Quick Configs (`✓ last applied`) e *Manage Profile Library…*.
-- **Pin Flutuante (`PinnedPopupWindowController`):** mantém o popup flutuando acima das demais janelas ao clicar fora, reseta corretamente ao esconder/reabrir pelo ícone e desafixa/fecha limpo com `Esc`.
-- **Sempre na frente (`WindowFrontPresenter`):** janela de Settings e `NSOpenPanel` de importação abrem imediatamente na frente de outras janelas.
-
----
-
-## Armazenamento de Dados
-
-- **Configurações:** `~/Library/Application Support/ToneDesk/settings.json` (schema v13)
-- **Perfis AutoEQ / PEQ:** `~/Library/Application Support/ToneDesk/AutoEQ/`
-
----
-
-## Build, Testes e Instalação Local
-
-Requisitos: **macOS 15+** e **Xcode** instalado.
+Ainda não há versão compilada para download. Para compilar:
 
 ```bash
-# Executar a suíte completa de testes automatizados (1.080 testes)
-xcodebuild test -project FineTune.xcodeproj -scheme FineTune \
-  -destination 'platform=macOS' -only-testing:FineTuneTests
-
-# Compilar versão Release
+git clone https://github.com/karellima/FineTune.git
+cd FineTune
 xcodebuild build -project FineTune.xcodeproj -scheme FineTune \
   -configuration Release -destination 'platform=macOS'
 ```
 
-O aplicativo compilado é gerado em `DerivedData/.../Build/Products/Release/ToneDesk.app` e pode ser copiado diretamente para `/Applications/ToneDesk.app`.
+Copie o `ToneDesk.app` gerado (em `DerivedData/…/Build/Products/Release/`) para `/Applications`.
 
----
+### Permissões
 
-## Licença
+Na primeira vez, o macOS pede:
 
-Distribuído sob a licença **GNU General Public License v3.0** ([LICENSE](LICENSE)), mantendo a licença da base original FineTune.
+| Permissão | Para quê |
+|---|---|
+| Gravação de áudio do sistema | Controlar o volume de cada app (obrigatória) |
+| Microfone | Só para apps que usam dispositivos com entrada |
+| Bluetooth | Conectar dispositivos pareados pelo menu |
+| Acessibilidade | Teclas de mídia e atalhos globais (opcional) |
+
+## Primeiros passos
+
+1. Clique no ícone da barra de menus e ajuste o volume de cada app.
+2. Para corrigir um fone: **Settings › Profiles › Import…** e escolha o `.txt` do [AutoEQ](https://autoeq.app) ou do REW. Veja o [guia de AutoEQ](guide/autoeq.md).
+3. Para comparar dois perfis: escolha A e B em **Settings › Profiles** e clique no lado que quer ouvir.
+4. Para salvar uma cena: no popup, crie uma Quick Config pelo cabeçalho.
+
+## Automação
+
+Controle o ToneDesk por URL, em scripts ou atalhos:
+
+```bash
+open "tonedesk://set-volumes?app=com.spotify.client&volume=50"
+open "tonedesk://toggle-mute?app=com.hnc.Discord"
+```
+
+Todos os comandos estão em [guide/url-schemes.md](guide/url-schemes.md). Problemas comuns: [guide/troubleshooting.md](guide/troubleshooting.md).
+
+## Dados
+
+Tudo fica em `~/Library/Application Support/ToneDesk/`:
+- `settings.json` — configurações
+- `AutoEQ/` — perfis importados
+
+Para começar do zero, feche o app e apague a pasta.
+
+## Desenvolvimento
+
+```bash
+xcodebuild test -project FineTune.xcodeproj -scheme FineTune \
+  -destination 'platform=macOS' -only-testing:FineTuneTests
+```
+
+O projeto e o scheme mantêm o nome `FineTune` para facilitar a sincronização com o upstream. Regras de código e de áudio em tempo real: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<details>
+<summary>O que muda em relação ao FineTune</summary>
+
+- Identidade própria: `com.karel.ToneDesk`, esquema `tonedesk://`, dados em pasta separada.
+- EQ paramétrico por dispositivo com gráfico interativo.
+- Perfis com até 64 filtros, biblioteca, backup e comparação A/B com nivelamento.
+- Quick Configs.
+- Balanço, mono, inversão L⇄R e limite de volume.
+- Medidor de nível, rolagem e menu de clique direito na barra de menus; popup fixável.
+- Modo "Bluetooth Output Only", que evita o perfil de chamada de baixa qualidade.
+- Sem atualização automática (Sparkle) nem links de doação.
+
+</details>
+
+## Créditos e licença
+
+Baseado no [FineTune](https://github.com/ronitsingh10/FineTune), de Ronit Singh. Mantido por Karel Cristian.
+Distribuído sob a [GNU GPL v3.0](LICENSE), a mesma licença do projeto original.
