@@ -1,12 +1,12 @@
-# Contributing to FineTune
+# Contributing to ToneDesk
 
-Thank you for your interest in contributing to FineTune!
+Thank you for your interest in contributing to ToneDesk!
 
 ## Building from Source
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/ronitsingh10/FineTune.git
+   git clone https://github.com/karellima/FineTune.git
    cd FineTune
    ```
 
@@ -16,7 +16,7 @@ Thank you for your interest in contributing to FineTune!
    ```
 
 3. Set your development team in Xcode:
-   - Select the FineTune target
+   - Select the `FineTune` target (note: the target and scheme keep the `FineTune` name for upstream compatibility, while building `ToneDesk.app`)
    - Go to Signing & Capabilities
    - Select your team from the dropdown
 
@@ -55,6 +55,13 @@ Code running in `processAudio()` must be real-time safe:
 - No Swift `print()` statements
 
 ## Testing
+
+Run the automated test suite:
+
+```bash
+xcodebuild test -project FineTune.xcodeproj -scheme FineTune \
+  -destination 'platform=macOS' -only-testing:FineTuneTests
+```
 
 Before submitting:
 - Test with 2+ output devices
