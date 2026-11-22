@@ -8,7 +8,6 @@ macOS 15.4+ · GPL-3.0 · derivado do [FineTune](https://github.com/ronitsingh10
 
 <br clear="all"/>
 
-<!-- TODO: trocar pelos prints do ToneDesk. Os arquivos atuais em assets/screenshot-*.png ainda são do FineTune. -->
 <p align="center">
   <img src="assets/tonedesk-popup.png" alt="Popup do ToneDesk na barra de menus com volume por app e dispositivos de saída" width="420"/>
   <img src="assets/tonedesk-profiles.png" alt="Configurações › Profiles com comparação A/B entre dois perfis de EQ" width="420"/>
