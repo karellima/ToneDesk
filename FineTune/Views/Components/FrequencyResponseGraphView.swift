@@ -35,7 +35,12 @@ struct FrequencyResponseGraphView: View {
     var onSelectBand: ((UUID) -> Void)? = nil
     var onDragBand: ((UUID, Double, Float) -> Void)? = nil
 
-    private let dbGridLines: [Double] = [-12, -6, 0, 6, 12]
+    static func autoMaxDB(_ curves: [[FrequencyResponsePoint]]) -> Double {
+        let peak = curves.flatMap { $0 }.map { abs($0.magnitudeDB) }.max() ?? 0
+        let padded = max(3, peak * 1.25)
+        return (padded / 3).rounded(.up) * 3
+    }
+
     private let axisFrequencyLabels: [(Double, String)] = [
         (50, "50"), (100, "100"), (500, "500"), (1000, "1k"), (5000, "5k"), (10000, "10k")
     ]
@@ -51,20 +56,17 @@ struct FrequencyResponseGraphView: View {
         }
     }
 
-    private var effectiveScale: (maxDB: Double, gridLines: [Double], labeledAbsDB: Double?) {
+    private var effectiveScale: (maxDB: Double, gridLines: [Double], labeledAbsDB: Double) {
         if mode == .difference {
             let peak = differencePoints.map { abs($0.magnitudeDB) }.max() ?? 0
             let step = max(2.0, ceil(peak))
             let scaledMax = step * 1.25
-            var lines: [Double] = [-step, 0, step]
-            if step >= 4 {
-                let half = step / 2.0
-                lines = [-step, -half, 0, half, step]
-            }
+            let half = step / 2.0
+            let lines: [Double] = step >= 4 ? [-step, -half, 0, half, step] : [-step, 0, step]
             return (scaledMax, lines, step)
         }
-        let maxLabeled = dbGridLines.filter { $0 > 0 && $0 < maxDB }.max()
-        return (maxDB, dbGridLines, maxLabeled)
+        let half = maxDB / 2.0
+        return (maxDB, [-maxDB, -half, 0, half, maxDB], maxDB)
     }
 
     var body: some View {
@@ -89,29 +91,33 @@ struct FrequencyResponseGraphView: View {
                         let hasSecondary = !(secondaryCurve?.isEmpty ?? true)
                         switch highlight {
                         case .primary:
-                            if let secondary = secondaryCurve, !secondary.isEmpty {
-                                drawCurve(
-                                    secondary, in: &context, rect: canvasRect, maxDB: scale.maxDB,
-                                    color: secondaryColor.opacity(0.45), lineWidth: 1.4, dashed: true, filled: false, glow: false
-                                )
-                            }
+                            // 1. Subtle green glow + playing curve (primary)
                             if !primaryCurve.isEmpty {
                                 drawCurve(
                                     primaryCurve, in: &context, rect: canvasRect, maxDB: scale.maxDB,
-                                    color: primaryColor, lineWidth: 2.2, dashed: false, filled: !hasSecondary, glow: true
+                                    color: primaryColor, lineWidth: 2.0, dashed: false, filled: !hasSecondary, glow: true
+                                )
+                            }
+                            // 2. Non-playing curve on top so both remain legible even where they overlap
+                            if let secondary = secondaryCurve, !secondary.isEmpty {
+                                drawCurve(
+                                    secondary, in: &context, rect: canvasRect, maxDB: scale.maxDB,
+                                    color: secondaryColor.opacity(0.75), lineWidth: 1.4, dashed: true, filled: false, glow: false
                                 )
                             }
                         case .secondary:
-                            if !primaryCurve.isEmpty {
-                                drawCurve(
-                                    primaryCurve, in: &context, rect: canvasRect, maxDB: scale.maxDB,
-                                    color: primaryColor.opacity(0.45), lineWidth: 1.4, dashed: false, filled: false, glow: false
-                                )
-                            }
+                            // 1. Subtle green glow + playing curve (secondary)
                             if let secondary = secondaryCurve, !secondary.isEmpty {
                                 drawCurve(
                                     secondary, in: &context, rect: canvasRect, maxDB: scale.maxDB,
-                                    color: secondaryColor, lineWidth: 2.2, dashed: true, filled: false, glow: true
+                                    color: secondaryColor, lineWidth: 2.0, dashed: true, filled: false, glow: true
+                                )
+                            }
+                            // 2. Non-playing curve on top so both remain legible even where they overlap
+                            if !primaryCurve.isEmpty {
+                                drawCurve(
+                                    primaryCurve, in: &context, rect: canvasRect, maxDB: scale.maxDB,
+                                    color: primaryColor.opacity(0.75), lineWidth: 1.4, dashed: false, filled: false, glow: false
                                 )
                             }
                         case nil:
@@ -188,9 +194,9 @@ struct FrequencyResponseGraphView: View {
     // MARK: - Geometry
 
     private func plotRect(in size: CGSize) -> CGRect {
-        let left: CGFloat = showAxisLabels ? 24 : 6
+        let left: CGFloat = showAxisLabels ? 26 : 6
         let right: CGFloat = 6
-        let top: CGFloat = 6
+        let top: CGFloat = showAxisLabels ? 8 : 6
         let bottom: CGFloat = showAxisLabels ? 16 : 6
         return CGRect(
             x: left,
@@ -235,7 +241,7 @@ struct FrequencyResponseGraphView: View {
         }
 
         // Horizontal dB grid lines
-        for db in gridLines where abs(db) < maxDB {
+        for db in gridLines where abs(db) <= maxDB + 0.001 {
             let y = yPosition(forDB: db, in: rect, maxDB: maxDB)
             var p = Path()
             p.move(to: CGPoint(x: rect.minX, y: y))
@@ -246,7 +252,7 @@ struct FrequencyResponseGraphView: View {
             if showAxisLabels && shouldLabel {
                 let label = db > 0 ? "+\(Int(round(db)))" : "\(Int(round(db)))"
                 let text = Text(label).font(DesignTokens.Typography.eqLabel).foregroundColor(.secondary)
-                context.draw(text, at: CGPoint(x: rect.minX - 11, y: y), anchor: .center)
+                context.draw(text, at: CGPoint(x: rect.minX - 12, y: y), anchor: .center)
             }
         }
 
@@ -309,11 +315,11 @@ struct FrequencyResponseGraphView: View {
 
         if glow {
             context.drawLayer { layer in
-                layer.addFilter(.blur(radius: 4))
+                layer.addFilter(.blur(radius: 2.5))
                 layer.stroke(
                     strokePath,
-                    with: .color(Color(nsColor: .systemGreen).opacity(0.55)),
-                    lineWidth: 7
+                    with: .color(Color(nsColor: .systemGreen).opacity(0.35)),
+                    lineWidth: 4
                 )
             }
         }

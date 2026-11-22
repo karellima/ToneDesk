@@ -1,4 +1,5 @@
 // FineTune/Views/Settings/SettingsRootView.swift
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -17,6 +18,10 @@ struct SettingsRootView: View {
     }
 
     @State private var selection: Section = .general
+
+    private var profilesWindowHeight: CGFloat {
+        min(760, (NSScreen.main?.visibleFrame.height ?? 900) - 80)
+    }
 
     var body: some View {
         TabView(selection: $selection) {
@@ -56,7 +61,8 @@ struct SettingsRootView: View {
                 .tabItem { Label("About", systemImage: "info.circle") }
                 .tag(Section.about)
         }
-        .frame(width: 720, height: 560)
+        .frame(width: 720, height: selection == .profiles ? profilesWindowHeight : 560)
+        .animation(.easeOut(duration: 0.2), value: selection)
         .preferredColorScheme(settings.appSettings.appearance.swiftUIColorScheme)
         .background(WindowAppearanceBridge(appearance: settings.appSettings.appearance.nsAppearance))
         .background(WindowTitleBridge(title: "ToneDesk Settings"))

@@ -52,7 +52,7 @@ struct ProfilesTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             toolbar
             abSection
             listSection
@@ -160,8 +160,16 @@ struct ProfilesTab: View {
                 .accessibilityValue(isABExpanded ? "Expanded" : "Collapsed")
 
                 if isABExpanded {
+                    let curveA = profA.map { FrequencyResponseCurve.evaluate(profile: $0, includePreamp: false, sampleRate: activeOutputSampleRate) } ?? []
+                    let curveB = profB.map { FrequencyResponseCurve.evaluate(profile: $0, includePreamp: false, sampleRate: activeOutputSampleRate) } ?? []
+                    let curvesNearlyIdentical: Bool = {
+                        guard ab.isConfigured, !curveA.isEmpty, curveA.count == curveB.count else { return false }
+                        let closeCount = zip(curveA, curveB).filter { abs($1.magnitudeDB - $0.magnitudeDB) < 1.5 }.count
+                        return Double(closeCount) / Double(curveA.count) > 0.8
+                    }()
+
                     SettingsSection {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
                                 ABSlotCard(
                                     slot: .a,
@@ -194,12 +202,19 @@ struct ProfilesTab: View {
                                 .labelsHidden()
                                 .fixedSize()
 
-                                Text("Click a side to listen. Your A/B shortcut also switches.")
-                                    .font(.system(size: 10.5))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
+                                if ab.isConfigured {
+                                    abInlineLegend(activeSlot: activeSlot)
+                                }
 
-                                Spacer(minLength: 8)
+                                if graphMode == .overlay && curvesNearlyIdentical {
+                                    Text("Curves are nearly identical — try Difference")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+
+                                Spacer(minLength: 4)
 
                                 Toggle("Level-match", isOn: Binding(
                                     get: { ab.levelMatch },
@@ -210,36 +225,27 @@ struct ProfilesTab: View {
                             }
                             .controlSize(.small)
 
-                            if ab.isConfigured, let profA, let profB {
-                                let curveA = FrequencyResponseCurve.evaluate(profile: profA, sampleRate: activeOutputSampleRate)
-                                let curveB = FrequencyResponseCurve.evaluate(profile: profB, sampleRate: activeOutputSampleRate)
-                                let peak = max(
-                                    curveA.map { abs($0.magnitudeDB) }.max() ?? 0,
-                                    curveB.map { abs($0.magnitudeDB) }.max() ?? 0
-                                )
-                                let maxDB: Double = peak <= 6 ? 7.5 : 18.0
+                            if ab.isConfigured, !curveA.isEmpty, !curveB.isEmpty {
+                                let maxDB = FrequencyResponseGraphView.autoMaxDB([curveA, curveB])
                                 let highlight: FrequencyResponseGraphView.Highlight? = switch activeSlot {
                                 case .a: .primary
                                 case .b: .secondary
                                 case nil: nil
                                 }
 
-                                VStack(alignment: .leading, spacing: 6) {
-                                    abGraphLegend(activeSlot: activeSlot)
-                                    FrequencyResponseGraphView(
-                                        primaryCurve: curveA,
-                                        secondaryCurve: curveB,
-                                        maxDB: maxDB,
-                                        height: 110,
-                                        highlight: highlight,
-                                        mode: graphMode,
-                                        showsLegend: false
-                                    )
-                                }
+                                FrequencyResponseGraphView(
+                                    primaryCurve: curveA,
+                                    secondaryCurve: curveB,
+                                    maxDB: maxDB,
+                                    height: 90,
+                                    highlight: highlight,
+                                    mode: graphMode,
+                                    showsLegend: false
+                                )
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                     }
                 }
             }
@@ -257,10 +263,10 @@ struct ProfilesTab: View {
     }
 
     @ViewBuilder
-    private func abGraphLegend(activeSlot: AutoEQABSettings.Slot?) -> some View {
-        HStack(spacing: 14) {
+    private func abInlineLegend(activeSlot: AutoEQABSettings.Slot?) -> some View {
+        HStack(spacing: 10) {
             if graphMode == .overlay {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     CurveSwatch(color: DesignTokens.Colors.accentPrimary, dashed: false, width: 12, lineWidth: 2)
                     Text("A")
                         .font(.system(size: 10.5, weight: .medium))
@@ -269,7 +275,7 @@ struct ProfilesTab: View {
                         playingLegendDot
                     }
                 }
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     CurveSwatch(color: Color(nsColor: .systemOrange), dashed: true, width: 12, lineWidth: 2)
                     Text("B")
                         .font(.system(size: 10.5, weight: .medium))
@@ -282,7 +288,7 @@ struct ProfilesTab: View {
                 Text("B − A")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color(nsColor: .systemOrange).opacity(0.6))
                         .frame(width: 8, height: 8)
@@ -290,7 +296,7 @@ struct ProfilesTab: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                 }
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(DesignTokens.Colors.accentPrimary.opacity(0.6))
                         .frame(width: 8, height: 8)
@@ -299,8 +305,8 @@ struct ProfilesTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Spacer()
         }
+        .fixedSize()
     }
 
     private var playingLegendDot: some View {
@@ -384,7 +390,7 @@ struct ProfilesTab: View {
         }
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 22)
         .padding(.vertical, 6)
     }
 
@@ -427,11 +433,14 @@ struct ProfilesTab: View {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
                     }
+                    .frame(minHeight: 6 * 33 + 30, maxHeight: .infinity)
+                    .layoutPriority(1)
                 }
             }
             .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
+        .layoutPriority(1)
     }
 
     private func rowBackground(for id: String) -> Color {
@@ -643,9 +652,8 @@ struct ProfilesTab: View {
     }
 
     private func filterTable(_ profile: AutoEQProfile) -> some View {
-        let curve = FrequencyResponseCurve.evaluate(profile: profile, sampleRate: activeOutputSampleRate)
-        let peak = curve.map { abs($0.magnitudeDB) }.max() ?? 0
-        let autoMaxDB: Double = peak <= 6 ? 7.5 : 18.0
+        let curve = FrequencyResponseCurve.evaluate(profile: profile, includePreamp: false, sampleRate: activeOutputSampleRate)
+        let autoMaxDB = FrequencyResponseGraphView.autoMaxDB([curve])
         let showAll = expandedAllFilterIDs.contains(profile.id)
         let visibleFilters = showAll ? profile.filters : Array(profile.filters.prefix(5))
         let remaining = profile.filters.count - visibleFilters.count
@@ -881,8 +889,8 @@ private struct ABSlotCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
                 Text(letter)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.primary)
@@ -891,19 +899,24 @@ private struct ABSlotCard: View {
 
                 CurveSwatch(color: swatchColor, dashed: isDashed, width: 14, lineWidth: 2)
 
-                if isPlaying {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(green)
-                            .frame(width: 6, height: 6)
-                            .shadow(color: green, radius: 3)
-                        Text("Playing")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(green)
-                    }
-                }
+                Text(profile?.name ?? "Select profile…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(profile == nil ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(profile?.name ?? "Select profile")
+                    .layoutPriority(1)
 
                 Spacer(minLength: 4)
+
+                if isPlaying {
+                    SettingsStatusPill(
+                        title: "Playing",
+                        tint: green,
+                        showsDot: true
+                    )
+                    .fixedSize()
+                }
 
                 Menu {
                     Button("—") { onSelectProfile(nil) }
@@ -939,21 +952,13 @@ private struct ABSlotCard: View {
                 .accessibilityLabel("Choose profile for Slot \(letter)")
             }
 
-            Text(profile?.name ?? "Select profile…")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(profile == nil ? .secondary : .primary)
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
             Text(metadataLine)
                 .font(.system(size: 10.5).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -976,6 +981,7 @@ private struct ABSlotCard: View {
         }
         .shadow(color: isPlaying ? green.opacity(0.22) : .clear, radius: 9)
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .help("Click a side to listen. Your A/B shortcut also switches.")
         .onTapGesture {
             guard isConfigured else { return }
             onActivate()
