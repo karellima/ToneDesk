@@ -98,4 +98,4 @@ If the keys still don't work right after launch, a WindowServer handoff can brie
 - Check if volume boost is set above 1x — high boost levels can cause clipping on loud passages
 - If using EQ, large boosts across multiple bands can push levels too high. Try pulling bands down instead of boosting others up.
 - AutoEQ profiles include a preamp gain reduction to prevent clipping; manual EQ does not, so be mindful of total gain
-- Try resetting the app to defaults: `open "finetune://reset"` in Terminal
+- Try resetting the app to defaults: `open "tonedesk://reset"` in Terminal
