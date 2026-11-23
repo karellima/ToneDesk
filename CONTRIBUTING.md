@@ -6,8 +6,8 @@ Thank you for your interest in contributing to ToneDesk!
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/karellima/FineTune.git
-   cd FineTune
+   git clone https://github.com/karellima/ToneDesk.git
+   cd ToneDesk
    ```
 
 2. Open in Xcode:

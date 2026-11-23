@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 struct AboutTab: View {
-    private static let repoURL = URL(string: "https://github.com/karellima/FineTune")!
+    private static let repoURL = URL(string: "https://github.com/karellima/ToneDesk")!
     private static let upstreamURL = URL(string: "https://github.com/ronitsingh10/FineTune")!
 
     private var versionShort: String {

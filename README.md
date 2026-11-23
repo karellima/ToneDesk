@@ -45,8 +45,8 @@
 Ainda não há versão compilada para download. Para compilar:
 
 ```bash
-git clone https://github.com/karellima/FineTune.git
-cd FineTune
+git clone https://github.com/karellima/ToneDesk.git
+cd ToneDesk
 xcodebuild build -project FineTune.xcodeproj -scheme FineTune \
   -configuration Release -destination 'platform=macOS'
 ```
